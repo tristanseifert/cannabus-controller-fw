@@ -5,6 +5,8 @@
 
 #include "diag/Trace.h"
 
+#include "errors.h"
+
 // debug macros
 #ifdef DEBUG
 #define LOG(format, ...) trace_printf(format, __VA_ARGS__)

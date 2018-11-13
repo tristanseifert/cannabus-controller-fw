@@ -3,7 +3,28 @@
 
 #include "controller.h"
 
+#include "periph/canbus.h"
+#include "hw/status.h"
+#include "controller/cannabus_init.h"
+
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include "gitcommit.h"
+
+/**
+ * Performs initialization of all hardware.
+ */
+static void init_hardware(void) {
+#ifdef STM32F042
+	status_init();
+	can_init();
+#endif
+#ifdef STM32F072
+	status_init();
+	can_init();
+#endif
+}
 
 /**
  * Application entry point
@@ -22,6 +43,13 @@ __attribute__((noreturn)) int main(int argc __attribute__((__unused__)), char* a
 #endif
 #endif
 
-	// if we get down here, reset the system
+	// initialize hardware
+	init_hardware();
+
+	// initialize CANnabus
+	controller_cannabus_init();
+
+	// start FreeRTOS scheduler. this should not return
+	vTaskStartScheduler();
 	NVIC_SystemReset();
 }
