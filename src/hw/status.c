@@ -34,9 +34,26 @@ static bool gLEDState[2];
 void status_init(void) {
 	// initialize status
 	memset(&gLEDState, 0, sizeof(gLEDState));
+	// set up GPIOs
+#ifdef STM32F042
+	// enable GPIO clock and configure them outputs
+	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 
-	// basically, "restore" the state of all off
-	status_restore();
+	GPIOA->MODER &= (uint32_t) ~
+			((GPIO_MODER_MODER7_0 | GPIO_MODER_MODER7_1) |
+			(GPIO_MODER_MODER6_0 | GPIO_MODER_MODER6_1));
+	GPIOA->MODER |= GPIO_MODER_MODER7_0 | GPIO_MODER_MODER6_0;
+#endif
+#ifdef STM32F072
+	// enable GPIO clock and configure them outputs
+	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
+
+	GPIOC->MODER |= GPIO_MODER_MODER10_0 | GPIO_MODER_MODER12_0;
+#endif
+
+	// set both LEDs to off
+	status_set(kStatusLED0, gLEDState[0]);
+	status_set(kStatusLED1, gLEDState[1]);
 }
 
 
@@ -95,36 +112,6 @@ void status_set(status_led_t led, bool on) {
  */
 bool status_get(status_led_t led) {
 	return gLEDState[led];
-}
-
-
-
-/**
- * For the STM32F042 target, the status outputs are multiplexed with the SPI
- * pins. This function restores the proper pin state once the SPI peripheral is
- * no logner needed.
- */
-void status_restore(void) {
-	// set up GPIOs
-#ifdef STM32F042
-	// enable GPIO clock and configure them outputs
-	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
-
-	GPIOA->MODER &= (uint32_t) ~
-			((GPIO_MODER_MODER7_0 | GPIO_MODER_MODER7_1) |
-			(GPIO_MODER_MODER6_0 | GPIO_MODER_MODER6_1));
-	GPIOA->MODER |= GPIO_MODER_MODER7_0 | GPIO_MODER_MODER6_0;
-#endif
-#ifdef STM32F072
-	// enable GPIO clock and configure them outputs
-	RCC->AHBENR |= RCC_AHBENR_GPIOCEN;
-
-	GPIOC->MODER |= GPIO_MODER_MODER10_0 | GPIO_MODER_MODER12_0;
-#endif
-
-	// set both LEDs to off
-	status_set(kStatusLED0, gLEDState[0]);
-	status_set(kStatusLED1, gLEDState[1]);
 }
 
 

@@ -117,7 +117,7 @@ extern uint32_t SystemCoreClock;
 #define INCLUDE_vTaskCleanUpResources	0
 #define INCLUDE_vTaskSuspend			0
 #define INCLUDE_vTaskDelayUntil			0
-#define INCLUDE_vTaskDelay				0
+#define INCLUDE_vTaskDelay				1
 
 // enable stuff to be able to get CPU usage in debug mode
 #ifdef DEBUG

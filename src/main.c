@@ -6,6 +6,7 @@
 #include "periph/canbus.h"
 #include "hw/status.h"
 #include "controller/cannabus_init.h"
+#include "controller/i2c_init.h"
 
 #include "FreeRTOS.h"
 #include "task.h"
@@ -45,6 +46,9 @@ __attribute__((noreturn)) int main(int argc __attribute__((__unused__)), char* a
 
 	// initialize hardware
 	init_hardware();
+
+	// initialize I2C interface
+	controller_i2c_init();
 
 	// initialize CANnabus
 	controller_cannabus_init();

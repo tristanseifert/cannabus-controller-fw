@@ -39,13 +39,6 @@ bool status_get(status_led_t led);
 
 
 /**
- * For the STM32F042 target, the status outputs are multiplexed with the SPI
- * pins. This function restores the proper pin state once the SPI peripheral is
- * no logner needed.
- */
-void status_restore(void);
-
-/**
  * Context switching callback from FreeRTOS: when the idle task is switched in,
  * STATUS[0] turns off, but when another task is switched in, it is turned on.
  * This makes that status LED basically an indicator of CPU load.
