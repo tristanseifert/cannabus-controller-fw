@@ -39,9 +39,11 @@ typedef struct {
 	uint16_t reg;
 
 	/// I2C receive buffer
-	char rxBuffer[kI2CRxBuffer];
+	uint8_t rxBuffer[kI2CRxBuffer];
 	/// how many bytes of data are valid in the receive buffer?
 	size_t rxBufferSz;
+	/// total number of bytes we can receive into this buffer
+	size_t rxBufferMax;
 
 	/// how many writes have taken place since start
 	size_t totalNumWrites;

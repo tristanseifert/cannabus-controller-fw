@@ -92,7 +92,30 @@ void i2c_init_gpio(void) {
  * Initializes the I2C peripheral.
  */
 void i2c_init_peripheral(void) {
+	/*
+	 * Configure I2C peripheral:
+	 *
+	 * CR1:
+	 * - Enable wakeup from STOP mode
+	 * - Enable slave byte control
+	 * - Enable TX DMA requests
+	 * - Enable error interrupts
+	 * - Enable STOP interrupts
+	 * - Enable address match interrupts
+	 * - Enable RX interrupt
+	 *
+	 * CR2:
+	 * -
+	 */
+	I2C1->CR1 = (I2C_CR1_WUPEN |/*I2C_CR1_SBC|*/ I2C_CR1_TXDMAEN |
+				 I2C_CR1_ERRIE | I2C_CR1_STOPIE | I2C_CR1_ADDRIE |
+				 I2C_CR1_RXIE);
 
+	// Set I2C address
+	I2C1->OAR1 = I2C_OAR1_OA1EN | (0x69 << 1);
+
+	// 400kHz clock, with 48MHz I2CCLK; 100ns rise, 10ns fall
+	I2C1->TIMINGR = 0x00900000;
 }
 
 /**
@@ -152,6 +175,53 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 void I2C1_IRQHandler(void) {
 	uint32_t bits = 0;
 	BaseType_t ok, higherPriorityWoken = pdFALSE;
+
+	// check the interrupt
+	uint32_t isr = I2C1->ISR;
+
+	// did we see our address?
+	if(isr & I2C_ISR_ADDR) {
+		bits |= 0x80000000;
+		I2C1->ICR = I2C_ICR_ADDRCF;
+	}
+	// was there a bus error?
+	if(isr & I2C_ISR_BERR) {
+		bits |= 0x40000000;
+		I2C1->ICR = I2C_ICR_BERRCF;
+	}
+	// did a STOP condition occur?
+	if(isr & I2C_ISR_STOPF) {
+		bits |= 0x00800000;
+		I2C1->ICR = I2C_ICR_STOPCF;
+	}
+	// did we receive a NACK?
+	if(isr & I2C_ISR_NACKF) {
+		bits |= 0x00400000;
+		I2C1->ICR = I2C_ICR_NACKCF;
+	}
+	// did we receive a byte?
+	if(isr & I2C_ISR_RXNE) {
+		uint8_t data = (I2C1->RXDR & 0xFF);
+
+		// if register was selected, read data into it
+		if(gState.regSelected) {
+			if(gState.rxBufferSz > gState.rxBufferMax) {
+				gState.rxBuffer[gState.rxBufferSz++] = data;
+			}
+
+			// if full, notify task
+			if(gState.rxBufferSz == gState.rxBufferMax) {
+				bits |= 0x00000800;
+			}
+		}
+		// otherwise, the byte is the register number
+		else {
+			gState.reg = data;
+			gState.regSelected = true;
+
+			bits |= 0x00008000;
+		}
+	}
 
 
 	// send notification if needed
