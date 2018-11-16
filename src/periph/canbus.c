@@ -2,12 +2,12 @@
  * canbus.c
  *
  * On the STM32F042 based hardware:
- * CAN_RX:	PA11
- * CAN_TX:	PA12
+ * CAN_RX:	PA11 (remap)
+ * CAN_TX:	PA12 (remap)
  *
  * On the STM32F072 Nucleo64 board:
- * CAN_RX:	PB8
- * CAN_TX:	PB9
+ * CAN_RX:	PA11
+ * CAN_TX:	PA12
  *
  * BTR register value calculated with http://www.bittiming.can-wiki.info/
  *
@@ -60,12 +60,15 @@ int can_init(void) {
 		return kErrTaskCreationFailed;
 	}
 
-#ifdef STM32F042
-	// enable GPIO, SYSCFG clocks, then remap PA11/PA12 to the pins
+//#ifdef STM32F042
+	// enable GPIO, SYSCFG clocks
 	RCC->AHBENR |= RCC_AHBENR_GPIOAEN;
 	RCC->APB2ENR |= RCC_APB2ENR_SYSCFGCOMPEN;
 
+	// remap PA11/PA12 to the pins on STM32F042
+#ifdef STM32F042
 	SYSCFG->CFGR1 |= SYSCFG_CFGR1_PA11_PA12_RMP;
+#endif
 
 	// configure PA11 and PA12 as high speed alternate function outputs
 	GPIOA->MODER |= (GPIO_MODER_MODER11_1 | GPIO_MODER_MODER12_1);
@@ -74,7 +77,7 @@ int can_init(void) {
 	// configure PA11 and PA12 alternate functions
 	GPIOA->AFR[1] |= 0x04 << (3 * 4);
 	GPIOA->AFR[1] |= 0x04 << (4 * 4);
-#endif
+/*#endif
 #ifdef STM32F072
 	// enable GPIO clocks
 	RCC->AHBENR |= RCC_AHBENR_GPIOBEN;
@@ -86,7 +89,7 @@ int can_init(void) {
 	// configure PB8 and PB9 alternate functions
 	GPIOB->AFR[1] |= 0x04 << (0 * 4);
 	GPIOB->AFR[1] |= 0x04 << (1 * 4);
-#endif
+#endif*/
 
 	// enable CAN clock and reset
 	RCC->APB1ENR |= RCC_APB1ENR_CANEN;

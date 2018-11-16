@@ -18,6 +18,27 @@
 #include <stdbool.h>
 
 /**
+ * Notification values for the I2C task
+ */
+typedef enum {
+	kNotificationI2CError			= (1 << 30),
+	kNotificationI2CBusError		= (1 << 29),
+	kNotificationI2CNACK			= (1 << 27),
+	kNotificationI2CSTOP		= (1 << 26),
+	kNotificationRegDataRx			= (1 << 23),
+	kNotificationRegLatched			= (1 << 22),
+	kNotificationSlaveSelect		= (1 << 21),
+	kNotificationDMAError		= (1 << 7),
+	kNotificationDMAComplete		= (1 << 6),
+
+	kNotificationAny			= (kNotificationI2CError |
+			kNotificationI2CBusError | kNotificationI2CNACK |
+			kNotificationI2CSTOP | kNotificationRegDataRx |
+			kNotificationRegLatched | kNotificationSlaveSelect |
+			kNotificationDMAError | kNotificationDMAComplete)
+} i2c_task_notification_t;
+
+/**
  * Size for the I2C handler task: this is comparatively large since we will be
  * calling out to the app code, which could be reasonably complex.
  */
