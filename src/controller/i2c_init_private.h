@@ -15,7 +15,8 @@
  * Internal state of the controller's I2C register interface.
  */
 typedef struct {
-
+	/// read buffer
+	uint8_t readBuffer[4];
 } controller_i2c_state_t;
 
 

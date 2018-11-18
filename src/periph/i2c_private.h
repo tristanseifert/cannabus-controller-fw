@@ -66,6 +66,13 @@ typedef struct {
 	/// total number of bytes we can receive into this buffer
 	size_t rxBufferMax;
 
+	/// data to be transmitted
+	uint8_t *txBuffer;
+	/// number of bytes to transmit, total
+	size_t txBufferSz;
+	/// number of bytes that were transmitted
+	size_t txBufferTotal;
+
 	/// how many writes have taken place since start
 	size_t totalNumWrites;
 	/// how many reads have taken place since start

@@ -130,9 +130,9 @@ void i2c_init_peripheral(void) {
 	 * CR2:
 	 * -
 	 */
-	I2C1->CR1 = (I2C_CR1_WUPEN |/*I2C_CR1_SBC|*/ I2C_CR1_TXDMAEN |
+	I2C1->CR1 = (I2C_CR1_WUPEN |/*I2C_CR1_SBC|*//* I2C_CR1_TXDMAEN |*/
 				 I2C_CR1_ERRIE | I2C_CR1_STOPIE | I2C_CR1_ADDRIE |
-				 I2C_CR1_RXIE | I2C_CR1_PE);
+				 I2C_CR1_RXIE | I2C_CR1_TXIE | I2C_CR1_PE);
 
 	// Set I2C address
 	I2C1->OAR1 |= (0x69 << 1);
@@ -169,6 +169,7 @@ void i2c_init_begin(void) {
  * field indicating various actions.
  */
 __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
+	int err;
 	BaseType_t ok;
 	uint32_t notification;
 
@@ -183,27 +184,80 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 			continue;
 		}
 
-		LOG("I2C notification: %08x\n", notification);
+//		LOG("I2C notification: %08x\n", notification);
 
-		// handle each of the notifications
+		// handle bus errors
 		if(notification & kNotificationI2CError) {
 			LOG("I2C error %x\n", I2C1->ISR);
 		}
 		if(notification & kNotificationI2CBusError) {
 			LOG("I2C bus error %x\n", I2C1->ISR);
 		}
-		if(notification & kNotificationI2CNACK) {
-			LOG_PUTS("I2C NACK");
+
+		// was a register number latched in?
+		if(notification & kNotificationRegLatched) {
+			LOG("I2C reg latched: (%d) 0x%02x\n", gState.regSelected, gState.reg);
 		}
-		if(notification & kNotificationI2CSTOP) {
-			LOG("I2C STOP; rx'd %u bytes (max %u)\n", gState.rxBufferSz, gState.rxBufferMax);
+		// does this transaction match our address?
+		if(notification & kNotificationSlaveSelect) {
+			uint8_t reg = (uint8_t) gState.reg;
+
+			// has the register been latched yet?
+			if(gState.regSelected) {
+				// is this a read?
+				if(I2C1->ISR & I2C_ISR_DIR) {
+					// call the read function
+					err = gState.cb.reg_read(reg);
+
+					if(err < kErrSuccess) {
+						LOG("reg_read failed: %d\n", err);
+					}
+				} else {
+					// get the number of bytes to write, max
+					size_t maxWrite;
+					err = gState.cb.reg_write_max(reg, &maxWrite);
+
+					if(err < kErrSuccess) {
+						LOG("reg_write_max failed: %d\n", err);
+					}
+					// callback was successful, set up the read buffer
+					else {
+						gState.rxBufferMax = maxWrite;
+						gState.rxBufferSz = 0;
+
+						memset(gState.rxBuffer, 0, sizeof(gState.rxBuffer));
+					}
+				}
+
+				// if an error occurred at any point, NACK the transaction
+				if(err < kErrSuccess) {
+					I2C1->CR2 |= I2C_CR2_NACK;
+				}
+			}
 		}
+
+		// did we receive some data?
 		if(notification & kNotificationRegDataRx) {
 			LOG("I2C rx %u bytes (max %u)\n", gState.rxBufferSz, gState.rxBufferMax);
 		}
-		if(notification & kNotificationRegLatched) {
-			LOG("I2C reg latched: %02x\n", gState.reg);
+
+		// did we receive a NACK? (end of read/write)
+		if(notification & kNotificationI2CNACK) {
+			LOG_PUTS("I2C NACK");
 		}
+
+		// did the transaction stop?
+		if(notification & kNotificationI2CSTOP) {
+			LOG("I2C STOP; rx'd %u bytes (max %u), tx'd %u\n\n",
+					gState.rxBufferSz, gState.rxBufferMax,
+					gState.txBufferTotal);
+
+			// clear state
+			gState.txBuffer = NULL;
+			gState.regSelected = false;
+		}
+
+		// handle DMA state changes
 		if(notification & kNotificationDMAError) {
 			LOG("DMA error: %x\n", DMA1->ISR);
 		}
@@ -211,6 +265,28 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 			LOG_PUTS("DMA complete");
 		}
 	}
+}
+
+
+
+/**
+ * Transmits the given bytes over I2C.
+ *
+ * @return the number of bytes that were actually written, or a negative error
+ * code.
+ */
+int i2c_write(void *data, size_t length) {
+	LOG("TX %u bytes (0x%x)\n", length, data);
+
+	// copy the values
+	gState.txBuffer = data;
+	gState.txBufferSz = length;
+	gState.txBufferTotal = 0;
+
+	// TODO: wait for tx
+
+	// return number of bytes transmitted
+	return (gState.txBufferTotal & 0xFF);
 }
 
 
@@ -255,7 +331,8 @@ void I2C1_IRQHandler(void) {
 			}
 
 			// if full, notify task
-			if(gState.rxBufferSz == gState.rxBufferMax) {
+			if(gState.rxBufferMax &&
+					(gState.rxBufferSz == gState.rxBufferMax)) {
 				bits |= kNotificationRegDataRx;
 			}
 		}
@@ -266,6 +343,22 @@ void I2C1_IRQHandler(void) {
 
 			bits |= kNotificationRegLatched;
 		}
+	}
+	// is the tx register is empty?
+	if(isr & I2C_ISR_TXIS) {
+		// copy data from TX buffer if we have it
+		if(gState.txBuffer) {
+			I2C1->TXDR = gState.txBuffer[gState.txBufferTotal];
+		} else {
+			// NACK immediately since there was an underflow
+//			I2C1->CR2 |= I2C_CR2_NACK;
+
+			// prepare garbage data
+			I2C1->TXDR = 0x00;
+		}
+
+		// increment counter
+		gState.txBufferTotal++;
 	}
 
 

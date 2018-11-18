@@ -53,7 +53,18 @@ void controller_i2c_init(void) {
  * register.
  */
 int controller_i2c_read(void **outBuffer, size_t *outBufferSz) {
-	return kErrUnimplemented;
+	// prepare the 4 byte buffer
+	*outBuffer = &gState.readBuffer;
+	*outBufferSz = 4;
+
+	// TODO: actually fill this lol
+	gState.readBuffer[0] = 0xDE;
+	gState.readBuffer[1] = 0xAD;
+	gState.readBuffer[2] = 0xBE;
+	gState.readBuffer[3] = 0xEF;
+
+	// done!
+	return kErrSuccess;
 }
 
 
@@ -61,7 +72,26 @@ int controller_i2c_read(void **outBuffer, size_t *outBufferSz) {
  * Responds to a request to read the given register.
  */
 int controller_i2c_reg_read(uint8_t reg) {
-	return kErrUnimplemented;
+	int err = kErrUnimplemented;
+
+	// status register?
+	if(reg == 0) {
+		// get the status register data
+		void *buffer;
+		size_t bufferSz;
+		err = controller_i2c_read(&buffer, &bufferSz);
+
+		// handle errors
+		if(err < kErrSuccess) {
+			return err;
+		}
+
+		// send that data
+		err = i2c_write(buffer, bufferSz);
+	}
+
+	// return error code. it's kErrUnimplemented by default
+	return err;
 }
 
 /**

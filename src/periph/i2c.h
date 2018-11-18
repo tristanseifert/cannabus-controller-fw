@@ -53,4 +53,14 @@ typedef struct {
 int i2c_init(const i2c_callbacks_t *callbacks);
 
 
+
+/**
+ * Transmits the given bytes over I2C.
+ *
+ * @return the number of bytes that were actually written, or a negative error
+ * code.
+ */
+int i2c_write(void *data, size_t length);
+
+
 #endif /* PERIPH_I2C_H_ */

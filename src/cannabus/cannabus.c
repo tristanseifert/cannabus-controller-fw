@@ -75,7 +75,7 @@ int cannabus_set_address(cannabus_addr_t addr) {
 
 	// set address in state
 	gState.address = addr;
-	LOG("CANnabus address: %x\n", addr);
+	LOG("CANnabus address: 0x%04x\n", addr);
 
 	// update the filters on the CAN peripheral
 	err = gState.callbacks.can_config_filter(2, 0x07FFF800, (uint32_t) (addr << 11));
