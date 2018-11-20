@@ -26,6 +26,5 @@
  */
 #define kIRQPriorityCAN				4
 #define kIRQPriorityI2C				5
-#define kIRQPriorityI2CTxDMA			6
 
 #endif

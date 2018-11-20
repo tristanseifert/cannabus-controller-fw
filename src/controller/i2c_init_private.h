@@ -16,7 +16,19 @@
  */
 typedef struct {
 	/// status register
-	uint8_t status[0];
+	uint8_t status[4];
 } controller_i2c_state_t;
+
+
+
+/**
+ * Callback function for a register read.
+ */
+int controller_i2c_reg_read(uint8_t reg);
+
+/**
+ * Callback function for a register write.
+ */
+int controller_i2c_reg_write(uint8_t reg);
 
 #endif /* CONTROLLER_I2C_INIT_PRIVATE_H_ */

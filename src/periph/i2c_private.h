@@ -21,21 +21,7 @@
  * Notification values for the I2C task
  */
 typedef enum {
-	kNotificationI2CError			= (1 << 30),
-	kNotificationI2CBusError		= (1 << 29),
-	kNotificationI2CNACK			= (1 << 27),
-	kNotificationI2CSTOP		= (1 << 26),
-	kNotificationRegDataRx			= (1 << 23),
-//	kNotificationRegLatched			= (1 << 22),
-//	kNotificationSlaveSelect		= (1 << 21),
-	kNotificationDMAError		= (1 << 7),
-	kNotificationDMAComplete		= (1 << 6),
-
-	kNotificationAny			= (kNotificationI2CError |
-			kNotificationI2CBusError | kNotificationI2CNACK |
-			kNotificationI2CSTOP | kNotificationRegDataRx |
-			/*kNotificationRegLatched | kNotificationSlaveSelect |*/
-			kNotificationDMAError | kNotificationDMAComplete)
+	kNotificationAny			= 0
 } i2c_task_notification_t;
 
 /**
@@ -54,24 +40,15 @@ typedef enum {
  * Internal state of the I2C driver.
  */
 typedef struct {
-	/// has a register been selected?
-	bool regSelected;
+	/// has a register been latched?
+	bool regLatched;
 	/// current i2c register we're dealing with, or 0xFFFF if none
 	uint16_t reg;
 
-	/// I2C receive buffer
-	uint8_t rxBuffer[kI2CRxBuffer];
-	/// how many bytes of data are valid in the receive buffer?
-	size_t rxBufferSz;
-	/// total number of bytes we can receive into this buffer
-	size_t rxBufferMax;
-
-	/// data to be transmitted
-	uint8_t *txBuffer;
-	/// number of bytes to transmit, total
-	size_t txBufferSz;
-	/// number of bytes that were transmitted
-	size_t txBufferTotal;
+	/// how many bytes of the register have been read?
+	size_t readCounter;
+	/// how many bytes of the register have been written?
+	size_t writeCounter;
 
 	/// how many writes have taken place since start
 	size_t totalNumWrites;
@@ -85,8 +62,9 @@ typedef struct {
 	/// stack for task
 	StackType_t taskStack[kI2CStackSize];
 
-	/// task to notify when the DMA completes, if any
-	TaskHandle_t dmaCompleteTask;
+
+	/// callbacks to notify client after reads/writes to registers
+	i2c_callbacks_t cb;
 
 	/// registers the driver accesses
 	i2c_register_t *regs;
@@ -127,18 +105,17 @@ void i2c_task(void *);
  */
 void I2C1_IRQHandler(void);
 /**
+ * Sends a NACK.
+ */
+static inline void i2c_irq_nack(void);
+/**
+ * Reloads the NBYTES counter for slave byte control.
+ */
+static void i2c_irq_sbc_reload(void);
+/**
  * When new data needs to be transmitted (an I2C read txn is occurring), this
  * does that.
  */
-void i2c_irq_tx(void);
-/**
- * Sets up the TX DMA request.
- */
-void i2c_irq_init_tx_dma(void);
-
-/**
- * DMA channels 2 and 3 interrupt handler: we only use channel 2 for I2C1_TX.
- */
-void DMA1_Channel2_3_IRQHandler(void);
+static void i2c_irq_tx(void);
 
 #endif /* PERIPH_I2C_PRIVATE_H_ */

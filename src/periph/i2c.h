@@ -34,25 +34,29 @@
  * these and uses them for all I/O to those registers.
  */
 typedef struct {
-	/// Is this register valid?
-	unsigned int valid				: 1;
-	/// Number of bytes that can be read from this register
-	unsigned int readSize			: 8;
-	/// Number of bytes that can be written to this register
-	unsigned int writeSize			: 8;
-
-	/// Pointer to this register's read buffer
-	void *regReadBuffer;
-	/// Function to call when the register was written to.
-	int (*writeCb)(uint8_t, void *, size_t);
+	/// Contents of this register when read
+	uint8_t read[4];
+	/// Contents of this register that are written to
+	uint8_t write[4];
 } i2c_register_t;
+
+/**
+ * Callbacks used by the I2C driver to inform the client code when a register
+ * has been read or written.
+ */
+typedef struct {
+	/// The given register was read.
+	int (*read)(uint8_t);
+	/// The given register was written to.
+	int (*written)(uint8_t);
+} i2c_callbacks_t;
 
 
 
 /**
  * Initializes the I2C driver.
  */
-int i2c_init(i2c_register_t *regs, uint8_t numRegs);
+int i2c_init(const i2c_callbacks_t *callbacks, i2c_register_t *regs, uint8_t numRegs);
 
 
 #endif /* PERIPH_I2C_H_ */
