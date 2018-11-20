@@ -16,15 +16,25 @@
 /// I2C interface state
 static controller_i2c_state_t gState;
 
+uint8_t test[4] = {
+	0x01, 0x02, 0x03, 0x84
+};
 
 /**
- * Callbacks for the I2C handler
+ * Register map for the I2C driver.
  */
-static const i2c_callbacks_t callbacks = {
-	.read = controller_i2c_read,
-	.reg_read = controller_i2c_reg_read,
-	.reg_write_max = controller_i2c_reg_write_max,
-	.reg_write = controller_i2c_reg_write
+#define kNumRegs					1
+static i2c_register_t gRegs[kNumRegs] = {
+	// Reg 0x00: Status register
+	{
+		.valid = 1,
+
+		.readSize = 4,
+		.regReadBuffer = &test,
+
+		.writeSize = 0,
+		.writeCb = NULL
+	}
 };
 
 
@@ -38,72 +48,19 @@ void controller_i2c_init(void) {
 	// clear state
 	memset(&gState, 0, sizeof(gState));
 
+	// initialize status reg
+	gState.status[0] = 0xDE;
+	gState.status[1] = 0xAD;
+	gState.status[2] = 0xBE;
+	gState.status[3] = 0xEF;
+
+	LOG("regs are at 0x%08x\n", &gRegs);
+	LOG("status data at 0x%08x (0x%08x)\n", gRegs[0].regReadBuffer, &gState.status);
+
 	// initialize driver
-	err = i2c_init(&callbacks);
+	err = i2c_init((i2c_register_t *) &gRegs, kNumRegs);
 
 	if(err < kErrSuccess) {
 		LOG("i2c_init: %d\n", err);
 	}
-}
-
-
-
-/**
- * Handles a read directly from the device: this returns the 4 byte status
- * register.
- */
-int controller_i2c_read(void **outBuffer, size_t *outBufferSz) {
-	// prepare the 4 byte buffer
-	*outBuffer = &gState.readBuffer;
-	*outBufferSz = 4;
-
-	// TODO: actually fill this lol
-	gState.readBuffer[0] = 0xDE;
-	gState.readBuffer[1] = 0xAD;
-	gState.readBuffer[2] = 0xBE;
-	gState.readBuffer[3] = 0xEF;
-
-	// done!
-	return kErrSuccess;
-}
-
-
-/**
- * Responds to a request to read the given register.
- */
-int controller_i2c_reg_read(uint8_t reg) {
-	int err = kErrUnimplemented;
-
-	// status register?
-	if(reg == 0) {
-		// get the status register data
-		void *buffer;
-		size_t bufferSz;
-		err = controller_i2c_read(&buffer, &bufferSz);
-
-		// handle errors
-		if(err < kErrSuccess) {
-			return err;
-		}
-
-		// send that data
-		err = i2c_write(buffer, bufferSz);
-	}
-
-	// return error code. it's kErrUnimplemented by default
-	return err;
-}
-
-/**
- * Returns the number of bytes that can be written into the specified register.
- */
-int controller_i2c_reg_write_max(uint8_t reg, size_t *maxSz) {
-	return kErrUnimplemented;
-}
-
-/**
- * Handles data that was written to the register.
- */
-int controller_i2c_reg_write(uint8_t reg, void *data, size_t dataSz) {
-	return kErrUnimplemented;
 }

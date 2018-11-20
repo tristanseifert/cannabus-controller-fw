@@ -30,37 +30,29 @@
 #include <stddef.h>
 
 /**
- * I2C driver callbacks
+ * I2C driver register state. The driver is given an array of one or more of
+ * these and uses them for all I/O to those registers.
  */
 typedef struct {
-	/// returns a fixed size buffer for a device read
-	int (*read)(void **, size_t *);
+	/// Is this register valid?
+	unsigned int valid				: 1;
+	/// Number of bytes that can be read from this register
+	unsigned int readSize			: 8;
+	/// Number of bytes that can be written to this register
+	unsigned int writeSize			: 8;
 
-	/// handles a request to read from a given register
-	int (*reg_read)(uint8_t);
-
-	/// gets the maximum number of bytes that may be written to this register
-	int (*reg_write_max)(uint8_t, size_t *);
-	/// handles a write to the given register.
-	int (*reg_write)(uint8_t, void *, size_t);
-} i2c_callbacks_t;
+	/// Pointer to this register's read buffer
+	void *regReadBuffer;
+	/// Function to call when the register was written to.
+	int (*writeCb)(uint8_t, void *, size_t);
+} i2c_register_t;
 
 
 
 /**
  * Initializes the I2C driver.
  */
-int i2c_init(const i2c_callbacks_t *callbacks);
-
-
-
-/**
- * Transmits the given bytes over I2C.
- *
- * @return the number of bytes that were actually written, or a negative error
- * code.
- */
-int i2c_write(void *data, size_t length);
+int i2c_init(i2c_register_t *regs, uint8_t numRegs);
 
 
 #endif /* PERIPH_I2C_H_ */

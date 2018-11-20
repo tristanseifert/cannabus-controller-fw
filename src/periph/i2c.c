@@ -9,15 +9,6 @@
  * - SCL: PB8 (AF1)
  * - SDA: PB9 (AF1)
  *
- * Data is received bytewise via interrupts and shoveled into the I2C task.
- *
- * Data is transmitted via DMA, which terminates either when all data has been
- * sent, or when parts of it have been sent but the master NACK'd early. In
- * both cases, the application's transmit call waits until the DMA finishes and
- * returns the number of bytes actually transferred.
- *
- * DMA channel 2 is used, I2C1_TX.
- *
  * We run the bus at 400kHz.
  *
  *  Created on: Nov 14, 2018
@@ -41,17 +32,18 @@ static i2c_state_t gState;
 /**
  * Initializes the I2C driver.
  */
-int i2c_init(const i2c_callbacks_t *callbacks) {
+int i2c_init(i2c_register_t *regs, uint8_t numRegs) {
 	// clear state and copy callbacks
 	memset(&gState, 0, sizeof(gState));
-	memcpy(&gState.cb, callbacks, sizeof(i2c_callbacks_t));
+
+	LOG("I2C: initializing with %d regs at 0x%08x\n", numRegs, regs);
+
+	gState.regs = regs;
+	gState.numRegs = numRegs;
 
 	// set up GPIOs and I2C
 	i2c_init_gpio();
 	i2c_init_peripheral();
-
-	// set up DMA
-	i2c_init_dma();
 
 	// set up the I2C task
 	gState.task = xTaskCreateStatic(i2c_task, "I2C",
@@ -97,12 +89,21 @@ void i2c_init_gpio(void) {
 	// configure PB8 and PB9 alternate function 1
 	GPIOB->AFR[1] |= (0x01 << (0 * 4)) | (0x01 << (1 * 4));
 #endif
+
+	// enable Fm+ drive conttrol on GPIOs
+	SYSCFG->CFGR1 |= SYSCFG_CFGR1_I2C_FMP_I2C1;
 }
 
 /**
  * Initializes the I2C peripheral.
  */
 void i2c_init_peripheral(void) {
+	// enable DMA clock
+	RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+
+	// disable I2C1_TX DMA request remap; it will be DMA1, Ch2
+	SYSCFG->CFGR1 &= ~SYSCFG_CFGR1_I2C1_DMA_RMP;
+
 	// enable I2C clock and reset
 	RCC->APB1ENR |= RCC_APB1ENR_I2C1EN;
 
@@ -121,30 +122,25 @@ void i2c_init_peripheral(void) {
 	 * CR1:
 	 * - Enable wakeup from STOP mode
 	 * - Enable slave byte control
-	 * - Enable TX DMA requests
 	 * - Enable error interrupts
 	 * - Enable STOP interrupts
 	 * - Enable address match interrupts
 	 * - Enable RX interrupt
+	 * - Generate TX DMA request
 	 *
 	 * CR2:
 	 * -
 	 */
-	I2C1->CR1 = (I2C_CR1_WUPEN |/*I2C_CR1_SBC|*//* I2C_CR1_TXDMAEN |*/
+	I2C1->CR1 = (I2C_CR1_WUPEN | I2C_CR1_SBC| I2C_CR1_TXDMAEN |
 				 I2C_CR1_ERRIE | I2C_CR1_STOPIE | I2C_CR1_ADDRIE |
-				 I2C_CR1_RXIE | I2C_CR1_TXIE | I2C_CR1_PE);
+				 I2C_CR1_RXIE /*| I2C_CR1_TXIE*/ | I2C_CR1_PE);
 
 	// Set I2C address
 	I2C1->OAR1 |= (0x69 << 1);
 	I2C1->OAR1 |= I2C_OAR1_OA1EN;
-}
 
-/**
- * Initializes the DMA channel for I2C transmission.
- */
-void i2c_init_dma(void) {
-	// enable DMA clock
-	RCC->AHBENR |= RCC_AHBENR_DMA1EN;
+	// slave byte control
+	i2c_sbc_init_regnum();
 }
 
 /**
@@ -152,12 +148,33 @@ void i2c_init_dma(void) {
  * bus: this also finally enables I2C interrupts.
  */
 void i2c_init_begin(void) {
-	// unmask the interrupt
+	// unmask the I2C interrupts
 	NVIC_EnableIRQ(I2C1_IRQn);
 	NVIC_SetPriority(I2C1_IRQn, kIRQPriorityI2C);
 
+	// unmask DMA interrupts
+	NVIC_EnableIRQ(DMA1_Channel2_3_IRQn);
+	NVIC_SetPriority(DMA1_Channel2_3_IRQn, kIRQPriorityI2CTxDMA);
+
 	// enable I2C peripheral
 //	I2C1->CR1 |= I2C_CR1_PE;
+}
+
+
+/**
+ * Initialize slave byte control for just the register number.
+ */
+void i2c_sbc_init_regnum(void) {
+	uint32_t cr2 = I2C1->CR2;
+
+	// read a single byte
+	cr2 &= ~(I2C_CR2_NBYTES);
+	cr2 |= (1 & 0xFF) << 16;
+
+	// reload bit is set; we ack each byte by software
+	cr2 |= I2C_CR2_RELOAD;
+
+	I2C1->CR2 = cr2;
 }
 
 
@@ -194,51 +211,20 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 			LOG("I2C bus error %x\n", I2C1->ISR);
 		}
 
-		// was a register number latched in?
-		if(notification & kNotificationRegLatched) {
-			LOG("I2C reg latched: (%d) 0x%02x\n", gState.regSelected, gState.reg);
-		}
-		// does this transaction match our address?
-		if(notification & kNotificationSlaveSelect) {
-			uint8_t reg = (uint8_t) gState.reg;
-
-			// has the register been latched yet?
-			if(gState.regSelected) {
-				// is this a read?
-				if(I2C1->ISR & I2C_ISR_DIR) {
-					// call the read function
-					err = gState.cb.reg_read(reg);
-
-					if(err < kErrSuccess) {
-						LOG("reg_read failed: %d\n", err);
-					}
-				} else {
-					// get the number of bytes to write, max
-					size_t maxWrite;
-					err = gState.cb.reg_write_max(reg, &maxWrite);
-
-					if(err < kErrSuccess) {
-						LOG("reg_write_max failed: %d\n", err);
-					}
-					// callback was successful, set up the read buffer
-					else {
-						gState.rxBufferMax = maxWrite;
-						gState.rxBufferSz = 0;
-
-						memset(gState.rxBuffer, 0, sizeof(gState.rxBuffer));
-					}
-				}
-
-				// if an error occurred at any point, NACK the transaction
-				if(err < kErrSuccess) {
-					I2C1->CR2 |= I2C_CR2_NACK;
-				}
-			}
-		}
 
 		// did we receive some data?
 		if(notification & kNotificationRegDataRx) {
 			LOG("I2C rx %u bytes (max %u)\n", gState.rxBufferSz, gState.rxBufferMax);
+
+			i2c_register_t *reg = &gState.regs[gState.reg];
+			if(reg->writeCb) {
+				err = reg->writeCb((uint8_t) (gState.reg & 0xFF),
+						&gState.rxBuffer, gState.rxBufferSz);
+
+				if(err < kErrSuccess) {
+					LOG("reg writeCb failed for 0x%02x: %d\n", gState.reg, err);
+				}
+			}
 		}
 
 		// did we receive a NACK? (end of read/write)
@@ -252,9 +238,27 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 					gState.rxBufferSz, gState.rxBufferMax,
 					gState.txBufferTotal);
 
+			// log
+//			i2c_register_t *reg = &gState.regs[gState.reg];
+//			LOG("reg 0x%02x at 0x%08x\n", gState.reg, reg);
+
 			// clear state
 			gState.txBuffer = NULL;
 			gState.regSelected = false;
+
+			// clear rx buffer
+			gState.rxBufferMax = 0;
+			gState.rxBufferSz = 0;
+
+			memset(gState.rxBuffer, 0, sizeof(gState.rxBuffer));
+
+			// clear tx buffer
+			gState.txBuffer = NULL;
+			gState.txBufferSz = 0;
+			gState.txBufferTotal = 0;
+
+			// reset slave byte control
+			i2c_sbc_init_regnum();
 		}
 
 		// handle DMA state changes
@@ -269,26 +273,6 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 
 
 
-/**
- * Transmits the given bytes over I2C.
- *
- * @return the number of bytes that were actually written, or a negative error
- * code.
- */
-int i2c_write(void *data, size_t length) {
-	LOG("TX %u bytes (0x%x)\n", length, data);
-
-	// copy the values
-	gState.txBuffer = data;
-	gState.txBufferSz = length;
-	gState.txBufferTotal = 0;
-
-	// TODO: wait for tx
-
-	// return number of bytes transmitted
-	return (gState.txBufferTotal & 0xFF);
-}
-
 
 /**
  * I2C interrupt handler
@@ -302,8 +286,15 @@ void I2C1_IRQHandler(void) {
 
 	// did we see our address?
 	if(isr & I2C_ISR_ADDR) {
-		bits |= kNotificationSlaveSelect;
 		I2C1->ICR = I2C_ICR_ADDRCF;
+
+		bool read = (isr & I2C_ISR_DIR) ? true : false;
+		LOG("direction: %s\n", read ? "read" : "write");
+
+		// if reading, prepare TX IRQ
+		if(isr & I2C_ISR_DIR) {
+			i2c_irq_init_tx_dma();
+		}
 	}
 	// was there a bus error?
 	if(isr & I2C_ISR_BERR) {
@@ -330,35 +321,55 @@ void I2C1_IRQHandler(void) {
 				gState.rxBuffer[gState.rxBufferSz++] = data;
 			}
 
-			// if full, notify task
+			// if rx buffer is full, notify task and NACK
 			if(gState.rxBufferMax &&
 					(gState.rxBufferSz == gState.rxBufferMax)) {
 				bits |= kNotificationRegDataRx;
+
+				I2C1->CR2 |= I2C_CR2_NACK;
 			}
 		}
 		// otherwise, the byte is the register number
 		else {
-			gState.reg = data;
-			gState.regSelected = true;
+			// if the reg number is out of bounds, NACK
+			if(data >= gState.numRegs) {
+				I2C1->CR2 |= I2C_CR2_NACK;
 
-			bits |= kNotificationRegLatched;
+				LOG("I2C: invalid reg 0x%02x\n", data);
+			}
+			// if so, set up the data
+			else {
+				gState.reg = data;
+				gState.regSelected = true;
+
+				i2c_register_t *reg = &(gState.regs[gState.reg]);
+
+				// set up the tx buffer
+				gState.txBuffer = reg->regReadBuffer;
+				gState.txBufferTotal = 0;
+				gState.txBufferSz = reg->readSize;
+
+				// set up the rx buffer
+				gState.rxBufferMax = reg->writeSize;
+				gState.rxBufferSz = 0;
+
+				/*LOG("I2C reg 0x%02x: read from %08x, write max %d\n", data,
+						gState.txBuffer, gState.rxBufferMax);*/
+			}
 		}
+
+		// reload NBYTES to ack transaction
+		I2C1->CR2 |= ((1 & 0xFF) << 16);
 	}
 	// is the tx register is empty?
-	if(isr & I2C_ISR_TXIS) {
-		// copy data from TX buffer if we have it
-		if(gState.txBuffer) {
-			I2C1->TXDR = gState.txBuffer[gState.txBufferTotal];
-		} else {
-			// NACK immediately since there was an underflow
-//			I2C1->CR2 |= I2C_CR2_NACK;
+	/*if(isr & I2C_ISR_TXE) {
+		i2c_irq_tx();
+	}*/
+	if(isr & I2C_ISR_TCR) {
+		LOG_PUTS("I2C TCR");
 
-			// prepare garbage data
-			I2C1->TXDR = 0x00;
-		}
-
-		// increment counter
-		gState.txBufferTotal++;
+		// reload NBYTES to ack transaction
+		I2C1->CR2 |= ((1 & 0xFF) << 16);
 	}
 
 
@@ -375,6 +386,69 @@ void I2C1_IRQHandler(void) {
 	portYIELD_FROM_ISR(higherPriorityWoken);
 }
 
+/**
+ * When new data needs to be transmitted (an I2C read txn is occurring), this
+ * does that.
+ */
+void i2c_irq_tx(void) {
+	// copy data from TX buffer if we have it
+	if(gState.txBuffer) {
+		// output data if we have some
+		if(gState.txBufferTotal < gState.txBufferSz) {
+			uint8_t data = gState.txBuffer[gState.txBufferTotal];
+			I2C1->TXDR = data;
+
+			LOG("tx off %d = %02x (0x%08x)\n", gState.txBufferTotal, data, gState.txBuffer);
+
+			// increment counter
+			gState.txBufferTotal++;
+
+			return;
+		}
+	}
+
+	// data wasn't available for whatever reason. send garbage and NACK
+	LOG("tx done (%d)\n", gState.txBufferTotal);
+
+	I2C1->TXDR = 0x00;
+	I2C1->CR2 |= I2C_CR2_NACK;
+}
+
+/**
+ * Sets up the TX DMA request.
+ *
+ * We use DMA0 channel 2, I2C1_TX.
+ */
+void i2c_irq_init_tx_dma(void) {
+	LOG("set up DMA size %d from 0x%08x\n", gState.txBufferSz, gState.txBuffer);
+
+	// configure NBYTES
+	uint32_t cr2 = I2C1->CR2;
+	cr2 &= ~(I2C_CR2_NBYTES);
+	cr2 |= (gState.txBufferSz & 0xFF) << 16;
+
+//	cr2 &= ~(I2C_CR2_RELOAD);
+
+	I2C1->CR2 = cr2;
+
+	// set up the source/destination (memory -> peripheral)
+	DMA1_Channel2->CPAR = (uint32_t) &I2C1->TXDR;
+	DMA1_Channel2->CMAR = (uint32_t) gState.txBuffer;
+	DMA1_Channel2->CNDTR = gState.txBufferSz;
+
+	/**
+	 * - Memory -> Peripheral
+	 * - Read a single byte from memory
+	 * - Write a single byte to peripheral
+	 * - Increment memory address only
+	 * - Issue transfer error and transfer complete interrupts
+	 */
+	DMA1_Channel2->CCR = DMA_CCR_DIR | DMA_CCR_MINC |
+			DMA_CCR_TEIE | DMA_CCR_TCIE;
+
+	// now, enable the DMA
+	DMA1_Channel2->CCR |= DMA_CCR_EN;
+}
 
 
 /**
@@ -408,5 +482,4 @@ void DMA1_Channel2_3_IRQHandler(void) {
 
 	// switch tasks if needed
 	portYIELD_FROM_ISR(higherPriorityWoken);
-
 }

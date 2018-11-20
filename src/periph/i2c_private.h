@@ -26,15 +26,15 @@ typedef enum {
 	kNotificationI2CNACK			= (1 << 27),
 	kNotificationI2CSTOP		= (1 << 26),
 	kNotificationRegDataRx			= (1 << 23),
-	kNotificationRegLatched			= (1 << 22),
-	kNotificationSlaveSelect		= (1 << 21),
+//	kNotificationRegLatched			= (1 << 22),
+//	kNotificationSlaveSelect		= (1 << 21),
 	kNotificationDMAError		= (1 << 7),
 	kNotificationDMAComplete		= (1 << 6),
 
 	kNotificationAny			= (kNotificationI2CError |
 			kNotificationI2CBusError | kNotificationI2CNACK |
 			kNotificationI2CSTOP | kNotificationRegDataRx |
-			kNotificationRegLatched | kNotificationSlaveSelect |
+			/*kNotificationRegLatched | kNotificationSlaveSelect |*/
 			kNotificationDMAError | kNotificationDMAComplete)
 } i2c_task_notification_t;
 
@@ -88,8 +88,9 @@ typedef struct {
 	/// task to notify when the DMA completes, if any
 	TaskHandle_t dmaCompleteTask;
 
-	/// callbacks used by the driver
-	i2c_callbacks_t cb;
+	/// registers the driver accesses
+	i2c_register_t *regs;
+	uint8_t numRegs;
 } i2c_state_t;
 
 
@@ -103,14 +104,14 @@ void i2c_init_gpio(void);
  */
 void i2c_init_peripheral(void);
 /**
- * Initializes the DMA channel for I2C transmission.
- */
-void i2c_init_dma(void);
-/**
  * Performs final initialization of the I2C peripheral before attaching to the
  * bus: this also finally enables I2C interrupts.
  */
 void i2c_init_begin(void);
+/**
+ * Initialize slave byte control for just the register number.
+ */
+void i2c_sbc_init_regnum(void);
 
 
 
@@ -125,6 +126,16 @@ void i2c_task(void *);
  * I2C interrupt handler
  */
 void I2C1_IRQHandler(void);
+/**
+ * When new data needs to be transmitted (an I2C read txn is occurring), this
+ * does that.
+ */
+void i2c_irq_tx(void);
+/**
+ * Sets up the TX DMA request.
+ */
+void i2c_irq_init_tx_dma(void);
+
 /**
  * DMA channels 2 and 3 interrupt handler: we only use channel 2 for I2C1_TX.
  */
