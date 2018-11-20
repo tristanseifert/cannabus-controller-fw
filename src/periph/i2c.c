@@ -286,6 +286,8 @@ void I2C1_IRQHandler(void) {
 
 	// did we see our address?
 	if(isr & I2C_ISR_ADDR) {
+		isr &= ~I2C_ISR_ADDR;
+
 		I2C1->ICR = I2C_ICR_ADDRCF;
 
 		bool read = (isr & I2C_ISR_DIR) ? true : false;
@@ -298,21 +300,29 @@ void I2C1_IRQHandler(void) {
 	}
 	// was there a bus error?
 	if(isr & I2C_ISR_BERR) {
+		isr &= ~I2C_ISR_BERR;
+
 		bits |= kNotificationI2CBusError;
 		I2C1->ICR = I2C_ICR_BERRCF;
 	}
 	// did a STOP condition occur?
 	if(isr & I2C_ISR_STOPF) {
+		isr &= ~I2C_ISR_STOPF;
+
 		bits |= kNotificationI2CSTOP;
 		I2C1->ICR = I2C_ICR_STOPCF;
 	}
 	// did we receive a NACK?
 	if(isr & I2C_ISR_NACKF) {
+		isr &= ~I2C_ISR_NACKF;
+
 		bits |= kNotificationI2CNACK;
 		I2C1->ICR = I2C_ICR_NACKCF;
 	}
 	// did we receive a byte?
 	if(isr & I2C_ISR_RXNE) {
+		isr &= ~I2C_ISR_RXNE;
+
 		uint8_t data = (I2C1->RXDR & 0xFF);
 
 		// if register was selected, read data into it
@@ -365,12 +375,14 @@ void I2C1_IRQHandler(void) {
 	/*if(isr & I2C_ISR_TXE) {
 		i2c_irq_tx();
 	}*/
-	if(isr & I2C_ISR_TCR) {
+	/*if(isr & I2C_ISR_TCR) {
 		LOG_PUTS("I2C TCR");
 
 		// reload NBYTES to ack transaction
 		I2C1->CR2 |= ((1 & 0xFF) << 16);
-	}
+	}*/
+
+	LOG("ISR 0x%08x\n", isr);
 
 
 	// send notification if needed
@@ -430,6 +442,9 @@ void i2c_irq_init_tx_dma(void) {
 //	cr2 &= ~(I2C_CR2_RELOAD);
 
 	I2C1->CR2 = cr2;
+
+	// clear config reg (disables the channel)
+	DMA1_Channel2->CCR &= 0xFFFF8000;
 
 	// set up the source/destination (memory -> peripheral)
 	DMA1_Channel2->CPAR = (uint32_t) &I2C1->TXDR;
