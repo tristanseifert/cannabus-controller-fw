@@ -9,7 +9,9 @@
  * - SCL: PB8 (AF1)
  * - SDA: PB9 (AF1)
  *
- * We run the bus at 400kHz.
+ * NOTES:
+ * - For some reason, the first byte of a read is garbage data. So, to read a
+ * 	 full register, read 5 bytes and ignore the first one.
  *
  *  Created on: Nov 14, 2018
  *      Author: tristan
@@ -25,7 +27,7 @@
 #include <string.h>
 
 /// I2C driver state
-static i2c_state_t gState;
+static i2c_state_t gI2CState;
 
 
 
@@ -34,24 +36,24 @@ static i2c_state_t gState;
  */
 int i2c_init(const i2c_callbacks_t *callbacks, i2c_register_t *regs, uint8_t numRegs) {
 	// clear state and copy callbacks
-	memset(&gState, 0, sizeof(gState));
-	memcpy(&gState.cb, callbacks, sizeof(i2c_callbacks_t));
+	memset(&gI2CState, 0, sizeof(gI2CState));
+	memcpy(&gI2CState.cb, callbacks, sizeof(i2c_callbacks_t));
 
 	LOG("I2C: initializing with %d regs at 0x%08x\n", numRegs, regs);
 
-	gState.regs = regs;
-	gState.numRegs = numRegs;
+	gI2CState.regs = regs;
+	gI2CState.numRegs = numRegs;
 
 	// set up GPIOs and I2C
 	i2c_init_gpio();
 	i2c_init_peripheral();
 
 	// set up the I2C task
-	gState.task = xTaskCreateStatic(i2c_task, "I2C",
-			kI2CStackSize, NULL, 1, (void *) &gState.taskStack,
-			&gState.taskTCB);
+	gI2CState.task = xTaskCreateStatic(i2c_task, "I2C",
+			kI2CStackSize, NULL, 1, (void *) &gI2CState.taskStack,
+			&gI2CState.taskTCB);
 
-	if(gState.task == NULL) {
+	if(gI2CState.task == NULL) {
 		return kErrTaskCreationFailed;
 	}
 
@@ -197,7 +199,25 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 			continue;
 		}
 
-//		LOG("I2C notification: %08x\n", notification);
+		// get register for notification
+		uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
+
+		// was a register read?
+		if(notification & kNotificationRead) {
+			err = gI2CState.cb.read(reg);
+
+			if(err < kErrSuccess) {
+				LOG("I2C: read callback failed %d\n", err);
+			}
+		}
+		// was a register written?
+		if(notification & kNotificationWrite) {
+			err = gI2CState.cb.written(reg);
+
+			if(err < kErrSuccess) {
+				LOG("I2C: write callback failed %d\n", err);
+			}
+		}
 	}
 }
 
@@ -227,22 +247,17 @@ void I2C1_IRQHandler(void) {
 
 	// did we see our address?
 	if(isr & I2C_ISR_ADDR) {
-//		isr &= ~I2C_ISR_ADDR;
-
 		I2C1->ICR = I2C_ICR_ADDRCF;
 
-		bool read = (isr & I2C_ISR_DIR) ? true : false;
-		LOG("direction: %s\n", read ? "read" : "write");
-
 		// was a register latched?
-		if(!gState.regLatched) {
+		if(!gI2CState.regLatched) {
 			// if so, and this is a read, act as if reg 0 is being read
 			if(isr & I2C_ISR_DIR) {
-				gState.reg = 0x00;
-				gState.regLatched = true;
+				gI2CState.reg = 0x00;
+				gI2CState.regLatched = true;
 
 				// transmit a single byte of data
-				i2c_irq_tx();
+//				i2c_irq_tx();
 			}
 			// it's a write for the register number, do nothing here
 			else { /* nothing */ }
@@ -252,7 +267,7 @@ void I2C1_IRQHandler(void) {
 			// is this a read (we transmit)?
 			if(isr & I2C_ISR_DIR) {
 				// transmit a single byte of data
-				i2c_irq_tx();
+//				i2c_irq_tx();
 			}
 			// it's a write… this shouldn't happen
 			else { /* nothing */ }
@@ -263,47 +278,58 @@ void I2C1_IRQHandler(void) {
 	}
 	// was there a bus error?
 	if(isr & I2C_ISR_BERR) {
-//		isr &= ~I2C_ISR_BERR;
 		I2C1->ICR = I2C_ICR_BERRCF;
 
 		// TODO: handle
 	}
 	// did a STOP condition occur?
 	if(isr & I2C_ISR_STOPF) {
-//		isr &= ~I2C_ISR_STOPF;
 		I2C1->ICR = I2C_ICR_STOPCF;
 
-		// TODO: call read callback if readCounter != 0
-		// TODO: call write callback if writeCounter != 0
+		// call read callback if readCounter != 0
+		if(gI2CState.readCounter != 0) {
+			gI2CState.notificationByteCounter = gI2CState.readCounter;
+			bits |= kNotificationRead;
+
+			// increment global counters
+			gI2CState.totalNumReads++;
+		}
+		// call write callback if writeCounter != 0
+		else if(gI2CState.writeCounter != 0) {
+			gI2CState.notificationByteCounter = gI2CState.writeCounter;
+			bits |= kNotificationWrite;
+
+			// increment global counters
+			gI2CState.totalNumWrites++;
+		}
+
+		gI2CState.notificationReg = gI2CState.reg;
 
 		// reset register state
-		gState.regLatched = false;
-		gState.reg = 0xFFFF;
+		gI2CState.regLatched = false;
+		gI2CState.reg = 0xFFFF;
 
 		// reset the read (I2C tx) counters
-		gState.readCounter = 0;
+		gI2CState.readCounter = 0;
 
 		// reset the write (I2C rx) counters
-		gState.writeCounter = 0;
+		gI2CState.writeCounter = 0;
 	}
 	// did we receive a NACK?
 	if(isr & I2C_ISR_NACKF) {
-//		isr &= ~I2C_ISR_NACKF;
 		I2C1->ICR = I2C_ICR_NACKCF;
 
 		// TODO: handle
 	}
 	// did we receive a byte?
 	if(isr & I2C_ISR_RXNE) {
-//		isr &= ~I2C_ISR_RXNE;
-
 		// read data (this clears the interrupt)
 		uint8_t data = (I2C1->RXDR & 0xFF);
 
 		// if no register was latched yet, this is the register number
-		if(!gState.regLatched) {
+		if(!gI2CState.regLatched) {
 			// make sure we have this register defined
-			if(data >= gState.numRegs) {
+			if(data >= gI2CState.numRegs) {
 				// we do not, so NACK the transmission
 				LOG("I2C: invalid reg 0x%02x\n", data);
 				i2c_irq_nack();
@@ -311,21 +337,24 @@ void I2C1_IRQHandler(void) {
 			// otherwise, set up for a write to this register
 			// this may change later if we get a RESTART
 			else {
-				gState.reg = data;
-				gState.regLatched = true;
+				gI2CState.reg = data;
+				gI2CState.regLatched = true;
+
+				// transmit a single byte of data
+//				i2c_irq_tx();
 			}
 		}
 		// a register was latched, this data should be written to the register
 		else {
 			// registers will just loop after 4 bytes
-			size_t byteOff = (gState.writeCounter & 0x03);
+			size_t byteOff = (gI2CState.writeCounter & 0x03);
 
 			// get a byte pointer into the register's read value and send it
-			uint8_t *writePtr = (uint8_t *) &(gState.regs[gState.reg].write);
+			uint8_t *writePtr = (uint8_t *) &(gI2CState.regs[gI2CState.reg].write);
 			writePtr[byteOff] = data;
 
 			// increment counter
-			gState.writeCounter++;
+			gI2CState.writeCounter++;
 		}
 
 		// reload NBYTES to ack transaction
@@ -351,7 +380,7 @@ void I2C1_IRQHandler(void) {
 
 	// send notification if needed
 	if(bits) {
-		ok = xTaskNotifyFromISR(gState.task, bits, eSetBits,
+		ok = xTaskNotifyFromISR(gI2CState.task, bits, eSetBits,
 				&higherPriorityWoken);
 
 		// we don't use the result of the call, can't do much anyways
@@ -392,16 +421,16 @@ static void i2c_irq_sbc_reload(void) {
  */
 static void i2c_irq_tx(void) {
 	// was a register latched?
-	if(gState.regLatched) {
+	if(gI2CState.regLatched) {
 		// registers will just loop after 4 bytes
-		size_t byteOff = (gState.readCounter & 0x03);
+		size_t byteOff = (gI2CState.readCounter & 0x03);
 
 		// get a byte pointer into the register's read value and send it
-		uint8_t *readPtr = (uint8_t *) &(gState.regs[gState.reg].read);
+		uint8_t *readPtr = (uint8_t *) &(gI2CState.regs[gI2CState.reg].read);
 		I2C1->TXDR = readPtr[byteOff];
 
 		// increment counter
-		gState.readCounter++;
+		gI2CState.readCounter++;
 	}
 	// if not, output 0xFF
 	else {

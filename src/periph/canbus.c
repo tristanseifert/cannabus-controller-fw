@@ -25,7 +25,7 @@
 #include <string.h>
 
 /// internal state
-static can_state_t gState;
+static can_state_t gCANState;
 
 
 /**
@@ -33,30 +33,30 @@ static can_state_t gState;
  */
 int can_init(void) {
 	// clear state
-	memset(&gState, 0, sizeof(gState));
+	memset(&gCANState, 0, sizeof(gCANState));
 
 	// create rx queue
-	gState.rxQueue = xQueueCreateStatic(kCANRxBufferSize, sizeof(can_message_t),
-			(void *) &gState.rxQueueBuffer, &gState.rxQueueStruct);
+	gCANState.rxQueue = xQueueCreateStatic(kCANRxBufferSize, sizeof(can_message_t),
+			(void *) &gCANState.rxQueueBuffer, &gCANState.rxQueueStruct);
 
-	if(gState.rxQueue == NULL) {
+	if(gCANState.rxQueue == NULL) {
 		return kErrQueueCreationFailed;
 	}
 
 	// create task message queue
-	gState.taskMsgQueue = xQueueCreateStatic(kCANMsgBufferSize,
-			sizeof(can_task_msg_t), (void *) &gState.taskMsgBuffer,
-			&gState.taskMsgQueueStruct);
+	gCANState.taskMsgQueue = xQueueCreateStatic(kCANMsgBufferSize,
+			sizeof(can_task_msg_t), (void *) &gCANState.taskMsgBuffer,
+			&gCANState.taskMsgQueueStruct);
 
-	if(gState.taskMsgQueue == NULL) {
+	if(gCANState.taskMsgQueue == NULL) {
 		return kErrQueueCreationFailed;
 	}
 
 	// create the task
-	gState.task = xTaskCreateStatic(can_task, "CAN",
-			kCANStackSize, NULL, 2, (void *) &gState.taskStack, &gState.taskTCB);
+	gCANState.task = xTaskCreateStatic(can_task, "CAN",
+			kCANStackSize, NULL, 2, (void *) &gCANState.taskStack, &gCANState.taskTCB);
 
-	if(gState.task == NULL) {
+	if(gCANState.task == NULL) {
 		return kErrTaskCreationFailed;
 	}
 
@@ -146,7 +146,7 @@ int can_init(void) {
  */
 void can_start(void) {
 	// clear the queue
-	xQueueReset(gState.rxQueue);
+	xQueueReset(gCANState.rxQueue);
 
 	// exit initialization mode; wait for INAK clear
 	CAN->MCR &= (uint32_t) ~CAN_MCR_INRQ;
@@ -238,7 +238,7 @@ __attribute__((noreturn)) void can_task( __attribute__((unused)) void *ctx) {
 
 	while(1) {
 		// wait for a message
-		ok = xQueueReceive(gState.taskMsgQueue, &msg, portMAX_DELAY);
+		ok = xQueueReceive(gCANState.taskMsgQueue, &msg, portMAX_DELAY);
 
 		if(ok != pdTRUE) {
 			LOG("xQueueReceive: %d\n", ok);
@@ -291,7 +291,7 @@ int can_task_tx_message(can_task_msg_t *msg) {
  * Are there any messages waiting to be read?
  */
 bool can_messages_available(void) {
-	return (uxQueueMessagesWaiting(gState.rxQueue) != 0);
+	return (uxQueueMessagesWaiting(gCANState.rxQueue) != 0);
 }
 
 /**
@@ -309,7 +309,7 @@ int can_get_last_message(can_message_t *msg) {
 	}
 
 	// attempt to dequeue a message
-	ok = xQueueReceive(gState.rxQueue, msg, portMAX_DELAY);
+	ok = xQueueReceive(gCANState.rxQueue, msg, portMAX_DELAY);
 
 	if(ok != pdTRUE) {
 		return kErrQueueReceive;
@@ -332,7 +332,7 @@ int can_transmit_message(can_message_t *txMsg) {
 	memcpy(&msg.txMessage, txMsg, sizeof(can_message_t));
 
 	// send it
-	ok = xQueueSendToBack(gState.taskMsgQueue, &msg, portMAX_DELAY);
+	ok = xQueueSendToBack(gCANState.taskMsgQueue, &msg, portMAX_DELAY);
 
 	if(ok != pdTRUE) {
 		return kErrQueueSend;
@@ -490,7 +490,7 @@ void CEC_CAN_IRQHandler(void) {
 			msg.type = kCANTaskHandleError;
 			msg.canError = CAN->ESR;
 
-			ok = xQueueSendToFrontFromISR(gState.taskMsgQueue, &msg, &higherPriorityWoken);
+			ok = xQueueSendToFrontFromISR(gCANState.taskMsgQueue, &msg, &higherPriorityWoken);
 		}
 		// did a TX mailbox free up? (check if at least one mailbox is free)
 		masterIrq = CAN->TSR;
@@ -501,18 +501,18 @@ void CEC_CAN_IRQHandler(void) {
 			CAN->TSR = CAN_TSR_RQCP0 | CAN_TSR_RQCP1 | CAN_TSR_RQCP2;
 
 			// notify the CAN message task
-			ok = xTaskNotifyFromISR(gState.task, 0x80000000, eSetBits, &higherPriorityWoken);
+			ok = xTaskNotifyFromISR(gCANState.task, 0x80000000, eSetBits, &higherPriorityWoken);
 		}
 
 		// did a mailbox transmit successfully?
 		if(masterIrq & CAN_TSR_TXOK0) {
-			ok = xTaskNotifyFromISR(gState.task, 0x01000000, eSetBits, &higherPriorityWoken);
+			ok = xTaskNotifyFromISR(gCANState.task, 0x01000000, eSetBits, &higherPriorityWoken);
 			CAN->TSR = CAN_TSR_RQCP0;
 		} if(masterIrq & CAN_TSR_TXOK1) {
-			ok = xTaskNotifyFromISR(gState.task, 0x02000000, eSetBits, &higherPriorityWoken);
+			ok = xTaskNotifyFromISR(gCANState.task, 0x02000000, eSetBits, &higherPriorityWoken);
 			CAN->TSR = CAN_TSR_RQCP1;
 		} if(masterIrq & CAN_TSR_TXOK2) {
-			ok = xTaskNotifyFromISR(gState.task, 0x04000000, eSetBits, &higherPriorityWoken);
+			ok = xTaskNotifyFromISR(gCANState.task, 0x04000000, eSetBits, &higherPriorityWoken);
 			CAN->TSR = CAN_TSR_RQCP2;
 		}
 
@@ -598,7 +598,7 @@ bool can_isr_read_fifo(int fifo) {
 	// send message to queue
 	BaseType_t wokeHigherPriority;
 
-	ok = xQueueSendFromISR(gState.rxQueue, &msg, &wokeHigherPriority);
+	ok = xQueueSendFromISR(gCANState.rxQueue, &msg, &wokeHigherPriority);
 
 	if(ok != pdTRUE) {
 		LOG("xQueueSendFromISR: %d\n", ok);
@@ -613,13 +613,13 @@ bool can_isr_read_fifo(int fifo) {
 void can_isr_check_fifo_overrun(void) {
 	// was FIFO0 overrun?
 	if(CAN->RF0R & CAN_RF0R_FOVR0) {
-		gState.numDroppedMessages++;
+		gCANState.numDroppedMessages++;
 
 		CAN->RF0R &= (uint32_t) ~CAN_RF0R_FOVR0;
 	}
 	// Was FIFO1 overrun?
 	if(CAN->RF1R & CAN_RF1R_FOVR1) {
-		gState.numDroppedMessages++;
+		gCANState.numDroppedMessages++;
 
 		CAN->RF1R &= (uint32_t) ~CAN_RF1R_FOVR1;
 	}

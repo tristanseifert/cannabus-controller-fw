@@ -21,7 +21,10 @@
  * Notification values for the I2C task
  */
 typedef enum {
-	kNotificationAny			= 0
+	kNotificationRead			= (1 << 0),
+	kNotificationWrite			= (1 << 1),
+
+	kNotificationAny			= (kNotificationRead | kNotificationWrite)
 } i2c_task_notification_t;
 
 /**
@@ -44,6 +47,11 @@ typedef struct {
 	bool regLatched;
 	/// current i2c register we're dealing with, or 0xFFFF if none
 	uint16_t reg;
+
+	/// I2C register to which the last read/write notification pertains
+	uint16_t notificationReg;
+	/// byte counter for the notification
+	size_t notificationByteCounter;
 
 	/// how many bytes of the register have been read?
 	size_t readCounter;

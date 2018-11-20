@@ -15,7 +15,7 @@
 const uint8_t kCannabusVersion = 0x08;
 
 /// Internal state of the CANnabus driver
-static cannabus_state_t gState;
+static cannabus_state_t gCANnabusState;
 
 
 
@@ -26,20 +26,20 @@ int cannabus_init(cannabus_addr_t addr, uint8_t deviceType, uint8_t fwUpgradeCap
 	int err;
 
 	// first, clear all state and copy callbacks
-	memset(&gState, 0, sizeof(gState));
-	memcpy(&gState.callbacks, callbacks, sizeof(cannabus_callbacks_t));
+	memset(&gCANnabusState, 0, sizeof(gCANnabusState));
+	memcpy(&gCANnabusState.callbacks, callbacks, sizeof(cannabus_callbacks_t));
 
 	// create the task
-	gState.task = xTaskCreateStatic(cannabus_task, "CANnabus",
-			kCANnabusTaskStackSize, NULL, 1, (void *) &gState.taskStack,
-			&gState.taskTCB);
+	gCANnabusState.task = xTaskCreateStatic(cannabus_task, "CANnabus",
+			kCANnabusTaskStackSize, NULL, 1, (void *) &gCANnabusState.taskStack,
+			&gCANnabusState.taskTCB);
 
-	if(gState.task == NULL) {
+	if(gCANnabusState.task == NULL) {
 		return kErrTaskCreationFailed;
 	}
 
 	// set filter for the broadcast address
-	err = gState.callbacks.can_config_filter(1, 0x07FFF800, (0xFFFF << 11));
+	err = gCANnabusState.callbacks.can_config_filter(1, 0x07FFF800, (0xFFFF << 11));
 
 	if(err < kErrSuccess) {
 		LOG("couldn't set broadcast filter: %d\n", err);
@@ -54,11 +54,11 @@ int cannabus_init(cannabus_addr_t addr, uint8_t deviceType, uint8_t fwUpgradeCap
 		return err;
 	}
 
-	gState.deviceType = deviceType;
-	gState.fwUpgradeCapabilities = fwUpgradeCapabilities;
+	gCANnabusState.deviceType = deviceType;
+	gCANnabusState.fwUpgradeCapabilities = fwUpgradeCapabilities;
 
 	// start the CAN bus
-	err = gState.callbacks.can_init();
+	err = gCANnabusState.callbacks.can_init();
 	return err;
 }
 
@@ -74,11 +74,11 @@ int cannabus_set_address(cannabus_addr_t addr) {
 	}
 
 	// set address in state
-	gState.address = addr;
+	gCANnabusState.address = addr;
 	LOG("CANnabus address: 0x%04x\n", addr);
 
 	// update the filters on the CAN peripheral
-	err = gState.callbacks.can_config_filter(2, 0x07FFF800, (uint32_t) (addr << 11));
+	err = gCANnabusState.callbacks.can_config_filter(2, 0x07FFF800, (uint32_t) (addr << 11));
 	return err;
 }
 
@@ -94,13 +94,13 @@ __attribute__((noreturn)) void cannabus_task( __attribute__((unused)) void *ctx)
 
 	while(1) {
 		// dequeue a message
-		err = gState.callbacks.can_rx_message(&frame);
+		err = gCANnabusState.callbacks.can_rx_message(&frame);
 
 		if(err < kErrSuccess) {
 			LOG("can_rx_message: %d\n", err);
 			continue;
 		} else {
-			gState.rxFrames++;
+			gCANnabusState.rxFrames++;
 		}
 
 		// convert this message into a CANnabus operation
@@ -116,7 +116,7 @@ __attribute__((noreturn)) void cannabus_task( __attribute__((unused)) void *ctx)
 		}
 		// otherwise, call into application code
 		else {
-			err = gState.callbacks.handle_operation(&op);
+			err = gCANnabusState.callbacks.handle_operation(&op);
 		}
 
 		if(err < kErrSuccess) {
@@ -142,11 +142,11 @@ int cannabus_send_op(cannabus_operation_t *op) {
 	}
 
 	// now, transmit the frame
-	err = gState.callbacks.can_tx_message(&frame);
+	err = gCANnabusState.callbacks.can_tx_message(&frame);
 
 	if(err >= kErrSuccess) {
 		// increment send counter
-		gState.txFrames++;
+		gCANnabusState.txFrames++;
 	}
 
 	return err;
@@ -185,7 +185,7 @@ int cannabus_conv_frame_to_op(cannabus_can_frame_t *frame, cannabus_operation_t 
 //	uint8_t priority = (frame->identifier >> 27) & 0x03;
 
 	// check this frame is destined for us? insurance against fucked filters
-	if(nodeId != gState.address && nodeId != 0xFFFF) {
+	if(nodeId != gCANnabusState.address && nodeId != 0xFFFF) {
 		return kErrCannabusNodeIdMismatch;
 	}
 
@@ -210,7 +210,7 @@ int cannabus_conv_frame_to_op(cannabus_can_frame_t *frame, cannabus_operation_t 
  */
 int cannabus_conv_op_to_frame(cannabus_operation_t *op, cannabus_can_frame_t *frame) {
 	// build the identifier
-	uint32_t identifier = (uint32_t) ((op->reg & 0x7FF) | (gState.address << 11));
+	uint32_t identifier = (uint32_t) ((op->reg & 0x7FF) | (gCANnabusState.address << 11));
 
 	// is it an ack frame?
 	if(op->ack) {
@@ -327,18 +327,18 @@ int cannabus_internal_reg_deviceid_respond(cannabus_operation_t *_op __attribute
 	op.data_len = 8;
 
 	// device id
-	op.data[0] = (uint8_t) ((gState.address & 0xFF00) >> 8);
-	op.data[1] = (uint8_t) (gState.address & 0x00FF);
+	op.data[0] = (uint8_t) ((gCANnabusState.address & 0xFF00) >> 8);
+	op.data[1] = (uint8_t) (gCANnabusState.address & 0x00FF);
 
 	// supported CANnabus version and device type
 	op.data[2] = kCannabusVersion;
-	op.data[3] = gState.deviceType;
+	op.data[3] = gCANnabusState.deviceType;
 
 	// fw upgrade support, passed to the initializer
-	op.data[4] = gState.fwUpgradeCapabilities;
+	op.data[4] = gCANnabusState.fwUpgradeCapabilities;
 
 	// firmware version
-	uint16_t version = gState.callbacks.get_fw_version();
+	uint16_t version = gCANnabusState.callbacks.get_fw_version();
 
 	op.data[5] = (uint8_t) ((version & 0xFF00) >> 8);
 	op.data[6] = (uint8_t) (version & 0x00FF);
