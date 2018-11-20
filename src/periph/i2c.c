@@ -93,7 +93,7 @@ void i2c_init_gpio(void) {
 	GPIOB->AFR[1] |= (0x01 << (0 * 4)) | (0x01 << (1 * 4));
 #endif
 
-	// enable Fm+ drive conttrol on GPIOs
+	// enable Fm+ drive control on GPIOs
 	SYSCFG->CFGR1 |= SYSCFG_CFGR1_I2C_FMP_I2C1;
 }
 
@@ -120,15 +120,11 @@ void i2c_init_peripheral(void) {
 	 *
 	 * CR1:
 	 * - Enable wakeup from STOP mode
-	 * - Enable slave byte control
 	 * - Enable error interrupts
-	 * - Enable STOP interrupts
+	 * - Enable STOP and NACK interrupts
 	 * - Enable address match interrupts
 	 * - Enable RX interrupt
 	 * - Enable TX interrupt
-	 *
-	 * CR2:
-	 * -
 	 */
 	I2C1->CR1 = (I2C_CR1_WUPEN | /*I2C_CR1_SBC |*/
 				 I2C_CR1_ERRIE |
@@ -140,9 +136,6 @@ void i2c_init_peripheral(void) {
 	// Set I2C address
 	I2C1->OAR1 |= (0x69 << 1);
 	I2C1->OAR1 |= I2C_OAR1_OA1EN;
-
-	// slave byte control
-	i2c_sbc_init_regnum();
 }
 
 /**
@@ -153,26 +146,6 @@ void i2c_init_begin(void) {
 	// unmask the I2C interrupts
 	NVIC_EnableIRQ(I2C1_IRQn);
 	NVIC_SetPriority(I2C1_IRQn, kIRQPriorityI2C);
-
-	// enable I2C peripheral
-//	I2C1->CR1 |= I2C_CR1_PE;
-}
-
-
-/**
- * Initialize slave byte control for a single byte with manual ACK.
- */
-void i2c_sbc_init_regnum(void) {
-	uint32_t cr2 = I2C1->CR2;
-
-	// read a single byte
-	cr2 &= ~(I2C_CR2_NBYTES);
-	cr2 |= (1 & 0xFF) << 16;
-
-	// reload bit is set; we ack each byte by software
-	cr2 |= I2C_CR2_RELOAD;
-
-	I2C1->CR2 = cr2;
 }
 
 
@@ -188,7 +161,7 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 	BaseType_t ok;
 	uint32_t notification;
 
-	LOG_PUTS("I2C ready");
+	LOG_PUTS("I2C: ready");
 
 	while(1) {
 		// wait for the task notification
@@ -199,11 +172,9 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 			continue;
 		}
 
-		// get register for notification
-		uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
-
 		// was a register read?
 		if(notification & kNotificationRead) {
+			uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
 			err = gI2CState.cb.read(reg);
 
 			if(err < kErrSuccess) {
@@ -212,11 +183,17 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 		}
 		// was a register written?
 		if(notification & kNotificationWrite) {
+			uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
 			err = gI2CState.cb.written(reg);
 
 			if(err < kErrSuccess) {
 				LOG("I2C: write callback failed %d\n", err);
 			}
+		}
+
+		// did a bus error occurr?
+		if(notification & kNotificationBusErr) {
+			LOG("I2C: bus error, ISR = 0x%08x\n", I2C1->ISR);
 		}
 	}
 }
@@ -251,13 +228,10 @@ void I2C1_IRQHandler(void) {
 
 		// was a register latched?
 		if(!gI2CState.regLatched) {
-			// if so, and this is a read, act as if reg 0 is being read
+			// if not, and this is a read, act as if reg 0 is being read
 			if(isr & I2C_ISR_DIR) {
 				gI2CState.reg = 0x00;
 				gI2CState.regLatched = true;
-
-				// transmit a single byte of data
-//				i2c_irq_tx();
 			}
 			// it's a write for the register number, do nothing here
 			else { /* nothing */ }
@@ -272,15 +246,13 @@ void I2C1_IRQHandler(void) {
 			// it's a write… this shouldn't happen
 			else { /* nothing */ }
 		}
-
-		// load NBYTES initially
-		i2c_irq_sbc_reload();
 	}
 	// was there a bus error?
 	if(isr & I2C_ISR_BERR) {
 		I2C1->ICR = I2C_ICR_BERRCF;
 
-		// TODO: handle
+		// notify task
+		bits |= kNotificationBusErr;
 	}
 	// did a STOP condition occur?
 	if(isr & I2C_ISR_STOPF) {
@@ -319,7 +291,7 @@ void I2C1_IRQHandler(void) {
 	if(isr & I2C_ISR_NACKF) {
 		I2C1->ICR = I2C_ICR_NACKCF;
 
-		// TODO: handle
+		// TODO: handle (but we can probably just ignore this)
 	}
 	// did we receive a byte?
 	if(isr & I2C_ISR_RXNE) {
@@ -331,7 +303,7 @@ void I2C1_IRQHandler(void) {
 			// make sure we have this register defined
 			if(data >= gI2CState.numRegs) {
 				// we do not, so NACK the transmission
-				LOG("I2C: invalid reg 0x%02x\n", data);
+//				LOG("I2C: invalid reg 0x%02x\n", data);
 				i2c_irq_nack();
 			}
 			// otherwise, set up for a write to this register
@@ -339,9 +311,6 @@ void I2C1_IRQHandler(void) {
 			else {
 				gI2CState.reg = data;
 				gI2CState.regLatched = true;
-
-				// transmit a single byte of data
-//				i2c_irq_tx();
 			}
 		}
 		// a register was latched, this data should be written to the register
@@ -356,26 +325,12 @@ void I2C1_IRQHandler(void) {
 			// increment counter
 			gI2CState.writeCounter++;
 		}
-
-		// reload NBYTES to ack transaction
-		i2c_irq_sbc_reload();
 	}
 	// is the tx register is empty?
 	if(isr & I2C_ISR_TXE) {
 		// if so, transmit one byte
 		i2c_irq_tx();
-
-		// reload NBYTES to ack the transaction
-		i2c_irq_sbc_reload();
 	}
-	/*if(isr & I2C_ISR_TCR) {
-		LOG_PUTS("I2C TCR");
-
-		// reload NBYTES to ack transaction
-		I2C1->CR2 |= ((1 & 0xFF) << 16);
-	}*/
-
-//	LOG("ISR 0x%08x\n", isr);
 
 
 	// send notification if needed
@@ -396,23 +351,6 @@ void I2C1_IRQHandler(void) {
  */
 static inline void i2c_irq_nack(void) {
 	I2C1->CR2 |= I2C_CR2_NACK;
-}
-/**
- * Reloads the NBYTES counter for slave byte control.
- *
- * This is basically identical to i2c_sbc_init_regnum but for use in the IRQ
- */
-static void i2c_irq_sbc_reload(void) {
-	uint32_t cr2 = I2C1->CR2;
-
-	// read a single byte
-	cr2 &= ~(I2C_CR2_NBYTES);
-	cr2 |= (1 & 0xFF) << 16;
-
-	// reload bit is set; we ack each byte by software
-	cr2 |= I2C_CR2_RELOAD;
-
-	I2C1->CR2 = cr2;
 }
 
 /**

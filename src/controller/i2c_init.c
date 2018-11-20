@@ -56,8 +56,6 @@ void controller_i2c_init(void) {
 	// clear state
 	memset(&gState, 0, sizeof(gState));
 
-	LOG("regs are at 0x%08x\n", &gRegs);
-
 	// initialize driver
 	err = i2c_init(&gCallbacks, (i2c_register_t *) &gRegs, kNumRegs);
 
@@ -89,6 +87,7 @@ int controller_i2c_reg_write(uint8_t reg) {
 	// TODO: implement
 	return kErrUnimplemented;
 }
+
 
 
 /**

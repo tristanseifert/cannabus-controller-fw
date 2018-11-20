@@ -21,10 +21,12 @@
  * Notification values for the I2C task
  */
 typedef enum {
+	kNotificationBusErr			= (1 << 7),
 	kNotificationRead			= (1 << 0),
 	kNotificationWrite			= (1 << 1),
 
-	kNotificationAny			= (kNotificationRead | kNotificationWrite)
+	kNotificationAny			= kNotificationBusErr |
+								  kNotificationRead | kNotificationWrite
 } i2c_task_notification_t;
 
 /**
@@ -94,10 +96,6 @@ void i2c_init_peripheral(void);
  * bus: this also finally enables I2C interrupts.
  */
 void i2c_init_begin(void);
-/**
- * Initialize slave byte control for just the register number.
- */
-void i2c_sbc_init_regnum(void);
 
 
 
@@ -116,10 +114,6 @@ void I2C1_IRQHandler(void);
  * Sends a NACK.
  */
 static inline void i2c_irq_nack(void);
-/**
- * Reloads the NBYTES counter for slave byte control.
- */
-static void i2c_irq_sbc_reload(void);
 /**
  * When new data needs to be transmitted (an I2C read txn is occurring), this
  * does that.
