@@ -16,6 +16,9 @@
 
 #include "controller.h"
 
+#include "FreeRTOS.h"
+#include "task.h"
+
 #include <string.h>
 
 /// global state
@@ -53,6 +56,40 @@ void host_irq_init(void) {
 }
 
 /**
+ * Prepares to modify the IRQ state.
+ *
+ * For each call to `host_irq_begin()` you must have a call to `host_irq_end` to
+ * finishe the IRQ state change.
+ */
+int host_irq_begin(void) {
+	// increment nesting value
+	gIrqState.nesting++;
+
+	return kErrSuccess;
+}
+
+/**
+ * Finishes modifying the IRQ state; at this point, the IRQ line's state will
+ * change.
+ */
+int host_irq_end(void) {
+	// if nesting is zero, update IRQ
+	if(--gIrqState.nesting == 0) {
+		// were any updates made?
+		if(gIrqState.numUpdates) {
+			host_irq_update();
+		}
+
+		// reset update counter
+		gIrqState.numUpdates = 0;
+	}
+
+	return kErrSuccess;
+}
+
+
+
+/**
  * Masks/unmasks the given IRQ line.
  */
 int host_irq_mask(unsigned int line, host_irq_line_mask_t state) {
@@ -73,8 +110,10 @@ int host_irq_mask(unsigned int line, host_irq_line_mask_t state) {
 		gIrqState.lineMask &= ~bitmask;
 	}
 
-	// recompute IRQ state
-	host_irq_update();
+	// increment output counter and log
+	gIrqState.numUpdates++;
+
+	LOG("HostIRQ: mask 0x%08x\n", gIrqState.lineMask);
 
 	return kErrSuccess;
 }
@@ -100,22 +139,43 @@ int host_irq_set(unsigned int line, host_irq_line_state_t state) {
 		gIrqState.lineState &= ~bitmask;
 	}
 
-	// recompute IRQ state
-	host_irq_update();
+	// increment output counter and log
+	gIrqState.numUpdates++;
+
+	LOG("HostIRQ: state 0x%08x\n", gIrqState.lineState);
 
 	return kErrSuccess;
 }
+/**
+ * Gets the state of the given IRQ line.
+ *
+ * This takes into account the interrupt mask.
+ */
+host_irq_line_state_t host_irq_get(unsigned int line) {
+	uint32_t bitmask = (uint32_t) (1 << line);
+
+	// check the result against it
+	if(gIrqState.result & bitmask) {
+		return kLineAsserted;
+	} else {
+		return kLineDeasserted;
+	}
+}
+
 
 
 /**
  * Updates the state of the external interrupt line.
  */
 void host_irq_update(void) {
+	// enter critical section
+	taskENTER_CRITICAL();
+
 	// AND the state with the mask bit
-	uint32_t result = (gIrqState.lineState & gIrqState.lineMask);
+	gIrqState.result = (gIrqState.lineState & gIrqState.lineMask);
 
 	// interrupt should be asserted (low output)
-	if(result) {
+	if(gIrqState.result) {
 #ifdef STM32F042
 		GPIOA->BSRR |= GPIO_BSRR_BR_0;
 #endif
@@ -132,4 +192,10 @@ void host_irq_update(void) {
 		GPIOA->BSRR |= GPIO_BSRR_BS_10;
 #endif
 	}
+
+	// exit critical section
+	taskEXIT_CRITICAL();
+
+	// log
+	LOG("HostIRQ: result 0x%08x\n", gIrqState.result);
 }

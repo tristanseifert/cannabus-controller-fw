@@ -31,8 +31,8 @@ int cannabus_init(cannabus_addr_t addr, uint8_t deviceType, uint8_t fwUpgradeCap
 
 	// create the task
 	gCANnabusState.task = xTaskCreateStatic(cannabus_task, "CANnabus",
-			kCANnabusTaskStackSize, NULL, 1, (void *) &gCANnabusState.taskStack,
-			&gCANnabusState.taskTCB);
+			kCANnabusTaskStackSize, NULL, kTaskPriorityCANnabus,
+			(void *) &gCANnabusState.taskStack, &gCANnabusState.taskTCB);
 
 	if(gCANnabusState.task == NULL) {
 		return kErrTaskCreationFailed;

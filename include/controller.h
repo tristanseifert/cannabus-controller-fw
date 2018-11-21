@@ -5,6 +5,8 @@
 
 #include "diag/Trace.h"
 
+#include "FreeRTOSConfig.h"
+
 #include "errors.h"
 
 // debug macros
@@ -26,5 +28,23 @@
  */
 #define kIRQPriorityCAN				4
 #define kIRQPriorityI2C				5
+
+/**
+ * Task priorities: lower numbers are lower priorities.
+ *
+ * In this case, we favor higher priorities for tasks that deal directly with
+ * some peripheral, followed by protocol handlers, and then any other general
+ * purpose tasks.
+ *
+ * Additionally, the handling of messages on the CAN bus is given higher
+ * priority than handling I2C related tasks.
+ */
+#define kTaskPriorityMax			(configMAX_PRIORITIES - 1)
+
+#define kTaskPriorityCAN			(kTaskPriorityMax - 0)
+#define kTaskPriorityI2C			(kTaskPriorityMax - 1)
+
+#define kTaskPriorityCANnabus	(kTaskPriorityMax - 1)
+#define kTaskPriorityController	(kTaskPriorityMax - 2)
 
 #endif

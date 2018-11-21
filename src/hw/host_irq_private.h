@@ -20,6 +20,14 @@ typedef struct {
 	uint32_t lineState;
 	/// mask for each line
 	uint32_t lineMask;
+
+	/// resulting interrupt value
+	uint32_t result;
+
+	/// nesting level of the updates
+	int nesting;
+	/// number of updates performed
+	int numUpdates;
 } host_irq_state_t;
 
 

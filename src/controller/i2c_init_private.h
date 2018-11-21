@@ -12,15 +12,33 @@
 #include <stddef.h>
 #include <stdbool.h>
 
+#include "FreeRTOS.h"
+#include "task.h"
+
+
+
+/// Size of the controller task's stack
+#define kControllerStackSize		75
+
+/**
+ * Notifications for the controller task
+ */
+typedef enum {
+	kNotificationStartDiscovery		= (1 << 0),
+
+	kNotificationAny 				= (kNotificationStartDiscovery)
+} controller_i2c_task_notification_t;
+
+
+/**
+ * Macro defining a bit in a register.
+ */
+#define REG_BIT(x)					(1UL << x)
+
 /**
  * Typedef for a register initialization function.
  */
 typedef void (*controller_i2c_reg_init_t)(void);
-
-/**
- * Define for a reserved register
- */
-#define kReservedRegister				{ .read = {0xFF,0xFF,0xFF,0xFF} }
 
 /**
  * A set of read/write routines for a particular register.
@@ -30,6 +48,20 @@ typedef struct {
 	int (*write)(uint8_t, uint32_t);
 } controller_i2c_routines_t;
 
+
+
+/**
+ * Define for a reserved and empty register and associated handlers
+ */
+#define kReservedRegister				{ .read = {0xFF,0xFF,0xFF,0xFF} }
+#define kReservedRegisterHandlers		{ .read = reg_read_nop, .write = reg_write_nop }
+
+#define kEmptyRegister					{ .read = {0x00,0x00,0x00,0x00} }
+
+#define kDefaultHandlers					{ .read = reg_read_nop, .write = reg_write_nop }
+
+
+
 /**
  * Internal state of the controller's I2C register interface.
  */
@@ -37,16 +69,56 @@ typedef struct {
 	/// status register
 	uint8_t status[4];
 
-	/// controller status
+	/// count of read ok interrupts
+	unsigned int rdOkIrqs			: 2;
+	/// count of read error interrupts
+	unsigned int rdErrIrqs			: 2;
+	/// count of read timeout interrupts
+	unsigned int rdTimeoutIrqs		: 2;
+
+	/// count of write ok interrupts
+	unsigned int wrOkIrqs			: 2;
+	/// count of write error interrupts
+	unsigned int wrErrIrqs			: 2;
+	/// count of write timeout interrupts
+	unsigned int wrTimeoutIrqs		: 2;
+
+	/// discovery related status
 	struct {
+		/// is device discovery in progress?
+		unsigned int inProgress		: 1;
 
-	} ctrl_status;
+		/// how long to wait for devices to respond
+		unsigned int timeoutReload	: 8;
+		/// current timeout counter
+		unsigned int timeout		: 8;
 
-	/// cannabus status
-	struct {
+		/// were more than the maximum number of devices discovered?
+		unsigned int dataOverflow	: 1;
+		/// number of devices that have been discovered
+		unsigned int devices		: 4;
 
-	} cannabus_status;
+		/// what offset into the device IDs array is output on the mailbox?
+		unsigned int mailboxView	: 3;
+
+		/// IDs of discovered devices
+		uint16_t deviceIds[16];
+	} discovery;
+
+	/// FreeRTOS task handle
+	TaskHandle_t task;
+	/// task control block
+	StaticTask_t taskTCB;
+	/// stack for task
+	StackType_t taskStack[kControllerStackSize];
 } controller_i2c_state_t;
+
+
+
+/**
+ * I2C controller task entry
+ */
+void controller_i2c_task(void *ctx);
 
 
 
@@ -65,11 +137,14 @@ int controller_i2c_reg_write(uint8_t reg);
 /**
  * No-op read handler
  */
-int controller_i2c_routine_read_nop(uint8_t reg, uint32_t readValue);
+int reg_read_nop(uint8_t reg, uint32_t readValue);
+
+
+
 /**
  * No-op write handler
  */
-int controller_i2c_routine_write_nop(uint8_t reg, uint32_t writtenValue);
+int reg_write_nop(uint8_t reg, uint32_t writtenValue);
 
 
 
@@ -84,6 +159,6 @@ void controller_i2c_set_reg(uint8_t reg, bool read, uint32_t newValue);
 /**
  * Returns a read/write pointer for the given register.
  */
-static uint8_t *_controller_i2c_get_reg_ptr(uint8_t reg, bool read);
+uint8_t *_controller_i2c_get_reg_ptr(uint8_t reg, bool read);
 
 #endif /* CONTROLLER_I2C_INIT_PRIVATE_H_ */

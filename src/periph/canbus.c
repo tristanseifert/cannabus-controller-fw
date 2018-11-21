@@ -54,7 +54,8 @@ int can_init(void) {
 
 	// create the task
 	gCANState.task = xTaskCreateStatic(can_task, "CAN",
-			kCANStackSize, NULL, 2, (void *) &gCANState.taskStack, &gCANState.taskTCB);
+			kCANStackSize, NULL, kTaskPriorityCAN,
+			(void *) &gCANState.taskStack, &gCANState.taskTCB);
 
 	if(gCANState.task == NULL) {
 		return kErrTaskCreationFailed;

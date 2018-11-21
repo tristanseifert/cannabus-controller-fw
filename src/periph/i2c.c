@@ -50,8 +50,8 @@ int i2c_init(const i2c_callbacks_t *callbacks, i2c_register_t *regs, uint8_t num
 
 	// set up the I2C task
 	gI2CState.task = xTaskCreateStatic(i2c_task, "I2C",
-			kI2CStackSize, NULL, 1, (void *) &gI2CState.taskStack,
-			&gI2CState.taskTCB);
+			kI2CStackSize, NULL, kTaskPriorityI2C,
+			(void *) &gI2CState.taskStack, &gI2CState.taskTCB);
 
 	if(gI2CState.task == NULL) {
 		return kErrTaskCreationFailed;

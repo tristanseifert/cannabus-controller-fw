@@ -31,6 +31,9 @@ enum {
 	/// an error occurred when sending to a queue
 	kErrQueueSend				= -1011,
 
+	/// an error occurred when notifying another task
+	kErrNotify					= -1020,
+
 };
 
 

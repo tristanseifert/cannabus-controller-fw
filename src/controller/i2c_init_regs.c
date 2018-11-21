@@ -5,16 +5,12 @@
  *      Author: tristan
  */
 #include "i2c_init_regs.h"
-#include "i2c_init_private.h"
 
-#include "../periph/i2c.h"
+#include "i2c_shared.h"
 
 #include "../cannabus/cannabus.h"
 
 #include <stdbool.h>
-
-/// forward declare reference to registers
-extern i2c_register_t gRegs[];
 
 
 

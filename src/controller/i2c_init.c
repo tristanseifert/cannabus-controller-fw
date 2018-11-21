@@ -6,7 +6,10 @@
  */
 #include "i2c_init.h"
 #include "i2c_init_private.h"
+
 #include "i2c_init_regs.h"
+#include "i2c_irqs.h"
+#include "i2c_discovery.h"
 
 #include "controller.h"
 
@@ -19,12 +22,10 @@
 #include <string.h>
 
 /// Number of registers on the I2C bus
-#define kNumRegs					3
-/// Number of initialization routines
-#define kNumInitRoutines		2
+#define kNumRegs					44
 
 /// I2C interface state
-static controller_i2c_state_t gState;
+controller_i2c_state_t gState;
 
 
 
@@ -55,20 +56,173 @@ static const controller_i2c_reg_init_t gInitRoutines[] = {
  */
 static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	// Reg 0x00: Status register
-	{
-		.read = controller_i2c_routine_read_nop,
-		.write = controller_i2c_routine_write_nop
-	},
+	kDefaultHandlers,
 	// Reg 0x01: Version
-	{
-		.read = controller_i2c_routine_read_nop,
-		.write = controller_i2c_routine_write_nop
-	},
+	kDefaultHandlers,
+
 	// Reg 0x02: Controller interrupt config
 	{
-		.read = controller_i2c_routine_read_nop,
-		.write = controller_i2c_routine_write_nop
-	}
+		.read = reg_read_nop,
+		.write = reg_write_ctrl_irq_cfg
+	},
+	// Reg 0x03: Controller interrupt status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_ctrl_irq_status,
+	},
+
+	// Reg 0x04: CANnabus status
+	kDefaultHandlers,
+
+	// Reg 0x05: CANnabus control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x06: CANnabus device ID
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+
+	// Reg 0x07: CANnabus interrupt config
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x08: CANnabus interrupt status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_cannabus_irq_status
+	},
+
+	// Reg 0x09: Device discovery control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_disc_control
+	},
+	// Reg 0x0A: Device discovery mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_disc_mailbox_status
+	},
+	// Reg 0x0B: Device discovery mailbox
+	{
+		.read = reg_read_disc_mailbox,
+		.write = reg_write_nop
+	},
+
+	// Regs 0x0C - 0x0F: Reserved
+	kReservedRegisterHandlers, kReservedRegisterHandlers,
+	kReservedRegisterHandlers, kReservedRegisterHandlers,
+
+	// Reg 0x10: Register read 0 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x11: Register read 0 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x12: Register read 0 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x13: Register read 0 reserved
+	kReservedRegisterHandlers,
+	// Reg 0x14: Register read 1 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x15: Register read 1 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x16: Register read 1 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x17: Register read 1 reserved
+	kReservedRegisterHandlers,
+	// Reg 0x18: Register read 2 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x19: Register read 2 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x1A: Register read 2 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x1B: Register read 2 reserved
+	kReservedRegisterHandlers,
+
+	// Reg 0x1C - 0x1F: Reserved
+	kReservedRegisterHandlers, kReservedRegisterHandlers,
+	kReservedRegisterHandlers, kReservedRegisterHandlers,
+
+	// Reg 0x20: Register write 0 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x21: Register write 0 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x22: Register write 0 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x23: Register write 0 reserved
+	kReservedRegisterHandlers,
+	// Reg 0x24: Register write 1 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x25: Register write 1 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x26: Register write 1 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x27: Register write 1 reserved
+	kReservedRegisterHandlers,
+	// Reg 0x28: Register write 2 control
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x29: Register write 2 mailbox status
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x2A: Register write 2 mailbox
+	{
+		.read = reg_read_nop,
+		.write = reg_write_nop
+	},
+	// Reg 0x2B: Register write 2 reserved
+	kReservedRegisterHandlers,
 };
 
 /**
@@ -103,17 +257,90 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
  */
 i2c_register_t gRegs[] = {
 	// Reg 0x00: Status register
-	{
-		.read = {0xDE, 0xAD, 0xBE, 0xEF}
-	},
+	kEmptyRegister,
 	// Reg 0x01: Version
-	{
-		.read = {0x00, 0x00, 0x00, 0x00}
-	},
+	kEmptyRegister,
+
 	// Reg 0x02: Controller interrupt config
-	{
-		.read = {0x00, 0x00, 0x00, 0x00}
-	}
+	kEmptyRegister,
+	// Reg 0x03: Controller interrupt status
+	kEmptyRegister,
+
+	// Reg 0x04: CANnabus status
+	kEmptyRegister,
+
+	// Reg 0x05: CANnabus control
+	kEmptyRegister,
+	// Reg 0x06: CANnabus device ID
+	kEmptyRegister,
+
+	// Reg 0x07: CANnabus interrupt config
+	kEmptyRegister,
+	// Reg 0x08: CANnabus interrupt status
+	kEmptyRegister,
+
+	// Reg 0x09: Device discovery control
+	kEmptyRegister,
+	// Reg 0x0A: Device discovery mailbox status
+	kEmptyRegister,
+	// Reg 0x0B: Device discovery mailbox
+	kEmptyRegister,
+
+	// Reg 0x0C - 0x0F: Reserved
+	kReservedRegister, kReservedRegister, kReservedRegister, kReservedRegister,
+
+	// Reg 0x10: Register read 0 control
+	kEmptyRegister,
+	// Reg 0x11: Register read 0 mailbox status
+	kEmptyRegister,
+	// Reg 0x12: Register read 0 mailbox
+	kEmptyRegister,
+	// Reg 0x13: Register read 0 reserved
+	kReservedRegister,
+	// Reg 0x14: Register read 1 control
+	kEmptyRegister,
+	// Reg 0x15: Register read 1 mailbox status
+	kEmptyRegister,
+	// Reg 0x16: Register read 1 mailbox
+	kEmptyRegister,
+	// Reg 0x17: Register read 1 reserved
+	kReservedRegister,
+	// Reg 0x18: Register read 2 control
+	kEmptyRegister,
+	// Reg 0x19: Register read 2 mailbox status
+	kEmptyRegister,
+	// Reg 0x1A: Register read 2 mailbox
+	kEmptyRegister,
+	// Reg 0x1B: Register read 2 reserved
+	kReservedRegister,
+
+	// Reg 0x1C - 0x1F: Reserved
+	kReservedRegister, kReservedRegister, kReservedRegister, kReservedRegister,
+
+	// Reg 0x20: Register write 0 control
+	kEmptyRegister,
+	// Reg 0x21: Register write 0 mailbox status
+	kEmptyRegister,
+	// Reg 0x22: Register write 0 mailbox
+	kEmptyRegister,
+	// Reg 0x23: Register write 0 reserved
+	kReservedRegister,
+	// Reg 0x24: Register write 1 control
+	kEmptyRegister,
+	// Reg 0x25: Register write 1 mailbox status
+	kEmptyRegister,
+	// Reg 0x26: Register write 1 mailbox
+	kEmptyRegister,
+	// Reg 0x27: Register write 1 reserved
+	kReservedRegister,
+	// Reg 0x28: Register write 2 control
+	kEmptyRegister,
+	// Reg 0x29: Register write 2 mailbox status
+	kEmptyRegister,
+	// Reg 0x2A: Register write 2 mailbox
+	kEmptyRegister,
+	// Reg 0x2B: Register write 2 reserved
+	kReservedRegister,
 };
 
 
@@ -126,6 +353,16 @@ void controller_i2c_init(void) {
 
 	// clear state
 	memset(&gState, 0, sizeof(gState));
+
+	// set up the task
+	gState.task = xTaskCreateStatic(controller_i2c_task, "I2CCtrlr",
+			kControllerStackSize, NULL, kTaskPriorityController,
+			(void *) &gState.taskStack, &gState.taskTCB);
+
+	if(gState.task == NULL) {
+		LOG_PUTS("couldn't create controller task");
+		asm volatile("bkpt 0");
+	}
 
 	// run init routines
 	controller_i2c_reg_init_t *init;
@@ -141,6 +378,38 @@ void controller_i2c_init(void) {
 
 	if(err < kErrSuccess) {
 		LOG("i2c_init: %d\n", err);
+	}
+}
+
+
+
+/**
+ * I2C controller task entry
+ */
+__attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unused))) {
+	int err;
+	BaseType_t ok;
+	uint32_t notification;
+
+	LOG_PUTS("Controller: ready");
+
+	while(1) {
+		// wait for the task notification
+		ok = xTaskNotifyWait(0, kNotificationAny, &notification, portMAX_DELAY);
+
+		if(ok != pdTRUE) {
+			LOG("xTaskNotifyWait: %d\n", ok);
+			continue;
+		}
+
+		// should we start discovery?
+		if(notification & kNotificationStartDiscovery) {
+			err = controller_discover();
+
+			if(err < kErrSuccess) {
+				LOG("controller_discover: %d\n", err);
+			}
+		}
 	}
 }
 
@@ -175,14 +444,17 @@ int controller_i2c_reg_write(uint8_t reg) {
 /**
  * No-op read handler
  */
-int controller_i2c_routine_read_nop(uint8_t reg __attribute__((unused)),
+int reg_read_nop(uint8_t reg __attribute__((unused)),
 		uint32_t readValue __attribute__((unused))) {
 	return kErrSuccess;
 }
+
+
+
 /**
  * No-op write handler
  */
-int controller_i2c_routine_write_nop(uint8_t reg __attribute__((unused)),
+int reg_write_nop(uint8_t reg __attribute__((unused)),
 		uint32_t writtenValue __attribute__((unused))) {
 	return kErrSuccess;
 }
@@ -224,7 +496,7 @@ void controller_i2c_set_reg(uint8_t reg, bool read, uint32_t newValue) {
 /**
  * Returns a read/write pointer for the given register.
  */
-static uint8_t *_controller_i2c_get_reg_ptr(uint8_t reg, bool read) {
+uint8_t *_controller_i2c_get_reg_ptr(uint8_t reg, bool read) {
 	if(read) {
 		return (uint8_t *) &gRegs[reg].read;
 	} else {
