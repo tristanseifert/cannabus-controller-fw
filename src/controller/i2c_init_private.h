@@ -24,9 +24,14 @@
  * Notifications for the controller task
  */
 typedef enum {
+	/// a CAN frame was received
+	kNotificationFrameReceived		= (1 << 8),
+
+	/// start discovery process
 	kNotificationStartDiscovery		= (1 << 0),
 
-	kNotificationAny 				= (kNotificationStartDiscovery)
+	kNotificationAny 				= (kNotificationFrameReceived |
+			kNotificationStartDiscovery)
 } controller_i2c_task_notification_t;
 
 
@@ -145,6 +150,10 @@ int reg_read_nop(uint8_t reg, uint32_t readValue);
  * No-op write handler
  */
 int reg_write_nop(uint8_t reg, uint32_t writtenValue);
+/**
+ * Copy the written value into the read field of the register.
+ */
+int reg_write_copy(uint8_t reg, uint32_t writtenValue);
 
 
 

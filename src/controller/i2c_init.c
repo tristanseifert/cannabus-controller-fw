@@ -9,6 +9,7 @@
 
 #include "i2c_init_regs.h"
 #include "i2c_irqs.h"
+#include "i2c_cannabus.h"
 #include "i2c_discovery.h"
 
 #include "controller.h"
@@ -23,6 +24,9 @@
 
 /// Number of registers on the I2C bus
 #define kNumRegs					44
+
+// Log register accesses
+#define LOG_REG_ACCESS			1
 
 /// I2C interface state
 controller_i2c_state_t gState;
@@ -88,7 +92,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	// Reg 0x07: CANnabus interrupt config
 	{
 		.read = reg_read_nop,
-		.write = reg_write_nop
+		.write = reg_write_cannabus_irq_config
 	},
 	// Reg 0x08: CANnabus interrupt status
 	{
@@ -421,7 +425,10 @@ __attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unus
 int controller_i2c_reg_read(uint8_t reg) {
 	// get the value of the register as it was read
 	uint32_t newValue = controller_i2c_get_reg(reg, true);
+
+#if LOG_REG_ACCESS
 	LOG("register 0x%02x read (0x%08x)\n", reg, newValue);
+#endif
 
 	// call the register specific routine
 	return gRoutines[reg].read(reg, newValue);
@@ -433,7 +440,10 @@ int controller_i2c_reg_read(uint8_t reg) {
 int controller_i2c_reg_write(uint8_t reg) {
 	// get the value just written to the register
 	uint32_t newValue = controller_i2c_get_reg(reg, false);
+
+#if LOG_REG_ACCESS
 	LOG("register 0x%02x written (0x%08x)\n", reg, newValue);
+#endif
 
 	// call the register specific routine
 	return gRoutines[reg].write(reg, newValue);
@@ -456,6 +466,15 @@ int reg_read_nop(uint8_t reg __attribute__((unused)),
  */
 int reg_write_nop(uint8_t reg __attribute__((unused)),
 		uint32_t writtenValue __attribute__((unused))) {
+	return kErrSuccess;
+}
+/**
+ * Copy the written value into the read field of the register.
+ */
+int reg_write_copy(uint8_t reg, uint32_t writtenValue) {
+	controller_i2c_set_reg(reg, true, writtenValue);
+
+	// success
 	return kErrSuccess;
 }
 

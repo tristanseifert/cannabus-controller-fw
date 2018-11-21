@@ -19,8 +19,10 @@
 /**
  * Handles a write to the controller interrupt config register.
  */
-int reg_write_ctrl_irq_cfg(uint8_t reg __attribute__((unused)),
-		uint32_t writtenValue) {
+int reg_write_ctrl_irq_cfg(uint8_t reg, uint32_t writtenValue) {
+	// copy value
+	controller_i2c_set_reg(reg, true, writtenValue);
+
 	// begin modifying host IRQ state
 	int err = host_irq_begin();
 
@@ -29,22 +31,16 @@ int reg_write_ctrl_irq_cfg(uint8_t reg __attribute__((unused)),
 	}
 
 	// should we have error interrupts?
-	if(writtenValue & REG_BIT(31)) {
-		err = host_irq_mask(kIrqLineControllerError, kLineUnmasked);
-	} else {
-		err = host_irq_mask(kIrqLineControllerError, kLineMasked);
-	}
+	err = host_irq_mask(kIrqLineControllerError,
+			(writtenValue & REG_BIT(31)) ? kLineUnmasked : kLineMasked);
 
 	if(err < kErrSuccess) {
 		return err;
 	}
 
 	// should we have init interrupts?
-	if(writtenValue & REG_BIT(30)) {
-		err = host_irq_mask(kIrqLineControllerInit, kLineUnmasked);
-	} else {
-		err = host_irq_mask(kIrqLineControllerInit, kLineMasked);
-	}
+	err = host_irq_mask(kIrqLineControllerInit,
+			(writtenValue & REG_BIT(30)) ? kLineUnmasked : kLineMasked);
 
 	if(err < kErrSuccess) {
 		return err;

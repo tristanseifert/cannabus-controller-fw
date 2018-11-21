@@ -24,6 +24,9 @@
  * Task entry point for discovering devices.
  */
 int controller_discover(void) {
+	BaseType_t ok;
+	uint32_t notification;
+
 	// load timer
 	gState.discovery.timeout = gState.discovery.timeoutReload;
 
@@ -31,7 +34,26 @@ int controller_discover(void) {
 
 	// TODO: send discovery frame
 
-	// TODO: wait for responses to come in
+	// wait for responses to come in as long as timeout is not expired
+	while(gState.discovery.timeout) {
+		// get current time, and wait
+		TickType_t start = xTaskGetTickCount();
+
+		ok = xTaskNotifyWait(0, kNotificationFrameReceived,
+				&notification, gState.discovery.timeout);
+
+		// update timeout
+		TickType_t end = xTaskGetTickCount();
+		gState.discovery.timeout -= (end - start);
+
+		LOG("new timeout: %d\n", gState.discovery.timeout);
+
+		// did the notification wait time out?
+		if(ok != pdTRUE) {
+			gState.discovery.timeout = 0;
+			break;
+		}
+	}
 
 	// clear "in progress" flag
 	gState.discovery.inProgress = 0;
