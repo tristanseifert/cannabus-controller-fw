@@ -14,6 +14,9 @@
 #include <stdbool.h>
 #include <stddef.h>
 
+/// CANnabus version
+extern const uint8_t kCannabusVersion;
+
 /**
  * CANnabus error codes
  */

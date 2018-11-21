@@ -5,6 +5,7 @@
 
 #include "periph/canbus.h"
 #include "hw/status.h"
+#include "hw/host_irq.h"
 #include "controller/cannabus_init.h"
 #include "controller/i2c_init.h"
 
@@ -19,10 +20,12 @@
 static void init_hardware(void) {
 #ifdef STM32F042
 	status_init();
+	host_irq_init();
 	can_init();
 #endif
 #ifdef STM32F072
 	status_init();
+	host_irq_init();
 	can_init();
 #endif
 }
