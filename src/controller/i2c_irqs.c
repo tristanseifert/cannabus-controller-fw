@@ -91,8 +91,9 @@ int reg_write_ctrl_irq_status(uint8_t reg __attribute__((unused)),
 /**
  * Handles a write to the CANnabus interrupt status register.
  *
- * The only interrupt that can be acknowledged this way is the discovery done,
- * so we have it in here instead of the CANnabis specific files.
+ * The only interrupt that can be acknowledged by writing to this register is
+ * the discovery done irq, so we have handle it in here instead of the
+ * CANnabus specific files.
  */
 int reg_write_cannabus_irq_status(uint8_t reg __attribute__((unused)),
 		uint32_t writtenValue) {

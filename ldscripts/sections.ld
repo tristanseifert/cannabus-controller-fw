@@ -44,9 +44,11 @@ _estack = __stack; 	/* STM specific definition */
  * Default stack sizes.
  * These are used by the startup in order to allocate stacks 
  * for the different modes.
+ *
+ * The startup stack is only used for interrupt handlers once the FreeRTOS
+ * scheduler is started, so it's ok for it to be pretty small.
  */
-
-__Main_Stack_Size = 1024 ;
+__Main_Stack_Size = 400;
 
 PROVIDE ( _Main_Stack_Size = __Main_Stack_Size ) ;
 

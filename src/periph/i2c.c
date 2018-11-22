@@ -275,6 +275,7 @@ void I2C1_IRQHandler(void) {
 			gI2CState.totalNumWrites++;
 		}
 
+		// set register used for notification
 		gI2CState.notificationReg = gI2CState.reg;
 
 		// reset register state
@@ -311,6 +312,10 @@ void I2C1_IRQHandler(void) {
 			else {
 				gI2CState.reg = data;
 				gI2CState.regLatched = true;
+
+				// reset byte counters
+				gI2CState.readCounter = 0;
+				gI2CState.writeCounter = 0;
 			}
 		}
 		// a register was latched, this data should be written to the register
