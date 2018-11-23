@@ -26,13 +26,21 @@
 int controller_discover(void) {
 	BaseType_t ok;
 	uint32_t notification;
+	int err;
 
 	// load timer
 	gState.discovery.timeout = gState.discovery.timeoutReload;
 
 	LOG("Controller: discovery timeout %u ticks\n", gState.discovery.timeout);
 
-	// TODO: send discovery frame
+	// send discovery frame (read register 0x0000 from device 0xFFFF)
+	cannabus_operation_t discovery;
+	memset(&discovery, 0, sizeof(discovery));
+
+	discovery.rtr = 1;
+	discovery.broadcast = 1;
+
+	err = cannabus_send_op(&discovery);
 
 	// wait for responses to come in as long as timeout is not expired
 	while(gState.discovery.timeout) {

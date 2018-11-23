@@ -118,7 +118,7 @@ void controller_cannabus_init(void) {
 	uint16_t busId = 0x0000;
 
 	// initialize bus
-	err = cannabus_init(busId, 0x00, 0, &kCannabusCallbacks);
+	err = cannabus_init(busId, &kCannabusCallbacks);
 
 	if(err < kErrSuccess) {
 		LOG("cannabus init failed: %d\n", err);

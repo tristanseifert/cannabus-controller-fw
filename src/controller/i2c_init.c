@@ -86,7 +86,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	// Reg 0x06: CANnabus device ID
 	{
 		.read = reg_read_nop,
-		.write = reg_write_nop
+		.write = reg_write_cannabus_device_id
 	},
 
 	// Reg 0x07: CANnabus interrupt config

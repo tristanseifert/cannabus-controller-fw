@@ -16,6 +16,7 @@
 #include "task.h"
 
 #include <stdbool.h>
+#include <stddef.h>
 
 /// stack size for CANnabus driver
 #define kCANnabusTaskStackSize	100
@@ -27,15 +28,10 @@ typedef struct {
 	/// node address
 	cannabus_addr_t address;
 
-	/// device type
-	uint8_t deviceType;
-	/// firmware upgrade capabilities
-	uint8_t fwUpgradeCapabilities;
-
 	/// number of received frames
-	unsigned int rxFrames;
+	size_t rxFrames;
 	/// number of sent frames
-	unsigned int txFrames;
+	size_t txFrames;
 
 	/// callbacks in user code to handle CAN bus interfacing
 	cannabus_callbacks_t callbacks;
@@ -66,29 +62,5 @@ int cannabus_conv_frame_to_op(cannabus_can_frame_t *frame, cannabus_operation_t 
  * Converts a CANnabus operation into a CAN frame to be transmitted.
  */
 int cannabus_conv_op_to_frame(cannabus_operation_t *op, cannabus_can_frame_t *frame);
-
-
-
-/**
- * Is this CANnabus operation internal, e.g. is it something specified in the
- * CANnabus protocol that all nodes interpret, thus something we handle internal
- * to the protocol handler?
- */
-bool cannabus_is_op_internal(cannabus_operation_t *op);
-
-/**
- * Handles an internal CANnabus operation.
- */
-int cannabus_internal_op(cannabus_operation_t *op);
-
-/**
- * Handles reads/writes to the Device ID (0x0000) register.
- */
-int cannabus_internal_reg_deviceid(cannabus_operation_t *op);
-
-/**
- * Sends the device ID response.
- */
-int cannabus_internal_reg_deviceid_respond(cannabus_operation_t *op);
 
 #endif /* CANNABUS_CANNABUS_PRIVATE_H_ */

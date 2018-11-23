@@ -21,7 +21,7 @@ extern const uint8_t kCannabusVersion;
  * CANnabus error codes
  */
 enum {
-	kErrCannabusUnimplemented		= -42000,
+	kErrCannabusTimeout				= -42000,
 	kErrCannabusNodeIdMismatch		= -42001,
 	kErrCannabusInvalidFrameSize	= -42002,
 	kErrCannabusCRCInvalid			= -42003,
@@ -52,10 +52,11 @@ typedef struct {
 
 /**
  * A CANnabus request.
- *
- * We do not care about the priority or device ID here.
  */
 typedef struct {
+	/// was this message received?
+	uint16_t rx			: 1;
+
 	/// was this a broadcast message?
 	uint16_t broadcast	: 1;
 	/// register to access
@@ -66,6 +67,12 @@ typedef struct {
 	uint16_t ack		: 1;
 	/// is this frame marked as 'high priority?'
 	uint16_t	 priority	: 1;
+
+	/// is the address of this frame specified specifically?
+	uint16_t addrValid	: 1;
+	/// address to use instead of the device address
+	cannabus_addr_t addr;
+
 
 	/// how many bytes of data do we have?
 	uint8_t data_len;
@@ -115,7 +122,7 @@ typedef struct {
 /**
  * Initializes the CANnabus and sets this node's address.
  */
-int cannabus_init(cannabus_addr_t addr, uint8_t deviceType, uint8_t fwUpgradeCapabilities, const cannabus_callbacks_t *callbacks);
+int cannabus_init(cannabus_addr_t addr, const cannabus_callbacks_t *callbacks);
 
 /**
  * Changes the node's address.
