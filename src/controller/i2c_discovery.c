@@ -28,39 +28,28 @@ int controller_discover(void) {
 	uint32_t notification;
 	int err;
 
-	// load timer
-	gState.discovery.timeout = gState.discovery.timeoutReload;
-	LOG("Controller: discovery timeout %u ticks\n", gState.discovery.timeout);
+	// TODO: make sure there's no outstanding reads/writes
+	LOG("Controller: starting discover. timeout %u ticks\n", gState.discovery.timeout);
 
-	// send discovery frame (read register 0x0000 from device 0xFFFF)
-	cannabus_operation_t discovery;
-	memset(&discovery, 0, sizeof(discovery));
+	// set up a read
+	err = cannabus_reg_read(0xFFFF, 0x000, controller_discover_io_callback, 0,
+			gState.discovery.timeout);
 
-	discovery.rtr = 1;
-	discovery.broadcast = 1;
-
-	err = cannabus_send_op(&discovery);
-
-	// wait for responses to come in as long as timeout is not expired
-	while(gState.discovery.timeout) {
-		// get current time, and wait
-		TickType_t start = xTaskGetTickCount();
-
-		ok = xTaskNotifyWait(0, kNotificationFrameReceived,
-				&notification, gState.discovery.timeout);
-
-		// update timeout
-		TickType_t end = xTaskGetTickCount();
-		gState.discovery.timeout -= (end - start);
-
-		LOG("new timeout: %d\n", gState.discovery.timeout);
-
-		// did the notification wait time out?
-		if(ok != pdTRUE) {
-			gState.discovery.timeout = 0;
-			break;
-		}
+	if(err < kErrSuccess) {
+		LOG("cannabus_reg_read: %d\n", err);
+		return err;
 	}
+
+	// wait for the timeout notification (plus 10 ticks)
+	ok = xTaskNotifyWait(0, kNotificationDiscoveryDone,
+			&notification, (gState.discovery.timeout + 10U));
+
+	// did the notification wait time out?
+	if(ok != pdTRUE) {
+		LOG("xTaskNotifyWait timed out (%d)\n", ok);
+	}
+	// it didn't, discovery is done
+	else { /* nothing */ }
 
 	// clear "in progress" flag
 	gState.discovery.inProgress = 0;
@@ -77,6 +66,46 @@ int controller_discover(void) {
 			gState.discovery.devices);
 
 	// return status
+	return kErrSuccess;
+}
+
+
+
+/**
+ * Callback for the discovery process. Each time we receive data, we extract the
+ * device ID from the frame and add it to the mailbox.
+ *
+ * When the error value is kErrCannabusTimeout, notify task since discovery is
+ * then done.
+ */
+int controller_discover_io_callback(int err,
+		uint32_t context __attribute__((unused)), cannabus_operation_t *op) {
+	BaseType_t ok;
+
+	LOG("discovery callback, err = %d\n", err);
+
+	// is this a timeout?
+	if(err == kErrCannabusTimeout) {
+		// notify task
+		ok = xTaskNotify(gState.task, kNotificationDiscoveryDone, eSetBits);
+
+		if(ok != pdTRUE) {
+			LOG("xTaskNotify failed: %d\n", ok);
+			return kErrNotify;
+		}
+	}
+	// no error (received frame)?
+	else if(err == kErrSuccess) {
+		LOG("controller_discover_io_callback: frame from 0x%04x\n", op->addr);
+
+		// TODO: write into mailbox
+	}
+	// unexpected error
+	else {
+		LOG("controller_discover_io_callback: unexpected CANnabus error %d\n", err);
+	}
+
+	// success
 	return kErrSuccess;
 }
 
@@ -157,7 +186,7 @@ int reg_write_disc_control(uint8_t reg __attribute__((unused)),
 
 	// copy timeout value (if not all zeros)
 	if(writtenValue & 0x00FF0000) {
-		gState.discovery.timeoutReload = (writtenValue & 0x00FF0000) >> 16;
+		gState.discovery.timeout = (writtenValue & 0x00FF0000) >> 16;
 	}
 
 	// if the start bit is set, set up and notify task

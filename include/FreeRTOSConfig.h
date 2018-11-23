@@ -105,10 +105,10 @@ extern uint32_t SystemCoreClock;
 #define configUSE_CO_ROUTINES 			0
 
 // don't use timers
-#define configUSE_TIMERS				0
+#define configUSE_TIMERS					1
 #define configTIMER_TASK_PRIORITY		2
-#define configTIMER_QUEUE_LENGTH		5
-#define configTIMER_TASK_STACK_DEPTH	80
+#define configTIMER_QUEUE_LENGTH			5
+#define configTIMER_TASK_STACK_DEPTH		75
 
 // task-related API functions to include
 #define INCLUDE_vTaskPrioritySet		0
@@ -136,6 +136,10 @@ extern uint32_t SystemCoreClock;
 #define xPortSysTickHandler SysTick_Handler
 
 // set the status handler for context switches
+#ifndef status_handle_context_switch
+	extern void status_handle_context_switch(void);
+#endif
+
 #define traceTASK_SWITCHED_IN()		status_handle_context_switch()
 
 #endif /* FREERTOS_CONFIG_H */

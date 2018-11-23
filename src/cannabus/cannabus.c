@@ -32,6 +32,30 @@ int cannabus_init(cannabus_addr_t addr, const cannabus_callbacks_t *callbacks) {
 	memset(&gCANnabusState, 0, sizeof(gCANnabusState));
 	memcpy(&gCANnabusState.callbacks, callbacks, sizeof(cannabus_callbacks_t));
 
+	// set default timeouts (100ms)
+	gCANnabusState.readTimeout = 10;
+	gCANnabusState.writeTimeout = 10;
+
+	// create io ops mutex
+	gCANnabusState.ioopsMutex = xSemaphoreCreateMutexStatic(&gCANnabusState.ioopsMutexStruct);
+
+	if(gCANnabusState.ioopsMutex == NULL) {
+		return kErrSemaphoreCreationFailed;
+	}
+
+	// create IOOP timers (no locks since scheduler isn't running yet)
+	for(int i = 0; i < kCannabusMaxIoRequests; i++) {
+		cannabus_ioop_t *ioOp =  &(gCANnabusState.ioops[i]);
+
+		// create timer. its id is NULL and is set later
+		ioOp->timer = xTimerCreateStatic(NULL, 50, pdFALSE, NULL,
+				cannabus_ioop_timeout_callback, &ioOp->timerStruct);
+
+		if(ioOp->timer == NULL) {
+			return kErrTimerCreationFailed;
+		}
+	}
+
 	// create the task
 	gCANnabusState.task = xTaskCreateStatic(cannabus_task, "CANnabus",
 			kCANnabusTaskStackSize, NULL, kTaskPriorityCANnabus,
@@ -40,6 +64,8 @@ int cannabus_init(cannabus_addr_t addr, const cannabus_callbacks_t *callbacks) {
 	if(gCANnabusState.task == NULL) {
 		return kErrTaskCreationFailed;
 	}
+
+
 
 	// set filter for the broadcast address
 	err = gCANnabusState.callbacks.can_config_filter(1, 0x07FFF800, (0xFFFF << 11));
@@ -70,6 +96,8 @@ int cannabus_init(cannabus_addr_t addr, const cannabus_callbacks_t *callbacks) {
 	return err;
 }
 
+
+
 /**
  * Changes the node's address.
  */
@@ -83,12 +111,315 @@ int cannabus_set_address(cannabus_addr_t addr) {
 
 	// set address in state
 	gCANnabusState.address = addr;
-	LOG("CANnabus address: 0x%04x\n", addr);
+	LOG("CANnabus: new address 0x%04x\n", addr);
 
 	// update the filters on the CAN peripheral
 	err = gCANnabusState.callbacks.can_config_filter(2, 0x07FFF800, (uint32_t) (addr << 11));
 
 	return err;
+}
+
+
+
+/**
+ * Sets the timeout for register read operations.
+ *
+ * @note Timeouts are specified in ticks, which are 10ms.
+ */
+int cannabus_set_read_timeout(uint32_t timeout) {
+	// timeout may not be 0 and may not be above 255 (2.5 seconds)
+	if(timeout == 0 || timeout > 255) {
+		return kErrInvalidArgs;
+	}
+
+	// otherwise, set the timeout
+	gCANnabusState.readTimeout = timeout;
+
+	return kErrSuccess;
+}
+/**
+ * Returns the read timeout.
+ */
+uint32_t cannabus_get_read_timeout(void) {
+	return gCANnabusState.readTimeout;
+}
+
+/**
+ * Sets the timeout for register write operations.
+ *
+ * @note Timeouts are specified in ticks, which are 10ms.
+ */
+int cannabus_set_write_timeout(uint32_t timeout) {
+	// timeout may not be 0 and may not be above 255 (2.5 seconds)
+	if(timeout == 0 || timeout > 255) {
+		return kErrInvalidArgs;
+	}
+
+	// otherwise, set the timeout
+	gCANnabusState.writeTimeout = timeout;
+
+	return kErrSuccess;
+}
+/**
+ * Returns the write timeout.
+ */
+uint32_t cannabus_get_write_timeout(void) {
+	return gCANnabusState.writeTimeout;
+}
+
+
+
+/**
+ * Performs a read from the given device's register.
+ *
+ * If the device address is the broadcast address (0xFFFF), the callback is
+ * called for every frame that's received up to the timeout.
+ */
+int cannabus_reg_read(cannabus_addr_t device, uint16_t reg,
+		cannabus_io_callback_t callback, uint32_t context, uint32_t timeout) {
+	int err;
+	BaseType_t ok;
+
+	// use default timeout if needed
+	if(timeout == 0) {
+		timeout = gCANnabusState.readTimeout;
+	}
+
+	// find a free IOOP struct
+	cannabus_ioop_t *ioOp = NULL;
+
+	err = cannabus_find_free_ioop(&ioOp);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_find_free_ioop: %d\n", err);
+		return err;
+	}
+
+	// set up IOOP
+	err = cannabus_ioop_setup(ioOp, device, reg, callback, context, true);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_ioop_setup: %d\n", err);
+		return err;
+	}
+
+	// send read request on the wire
+	cannabus_operation_t op;
+	memset(&op, 0, sizeof(op));
+
+	op.reg = (reg & 0x7FFUL);
+	op.addr = device;
+
+	op.broadcast = (device == 0xFFFF) ? 1 : 0;
+
+	op.rtr = 1;
+
+	err = cannabus_send_op(&op);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_send_op: %d\n", err);
+		return err;
+	}
+
+	// activate timer (set its period)
+	ok = xTimerChangePeriod(ioOp->timer, timeout, portMAX_DELAY);
+	return (ok == pdTRUE) ? kErrSuccess : kErrTimer;
+}
+
+/**
+ * Performs a write to the given device's register.
+ *
+ * Writing to the broadcast address is not something that's implemented, even
+ * though it's technically possible.
+ */
+int cannabus_reg_write(cannabus_addr_t device, uint16_t reg, void *data,
+		size_t dataLen, cannabus_io_callback_t callback, uint32_t context,
+		uint32_t timeout) {
+	int err;
+	BaseType_t ok;
+
+	// validate arguments
+	if(data == NULL || dataLen > 8) {
+		return kErrInvalidArgs;
+	}
+
+	// use default timeout if needed
+	if(timeout == 0) {
+		timeout = gCANnabusState.writeTimeout;
+	}
+
+	// find a free IOOP struct
+	cannabus_ioop_t *ioOp = NULL;
+
+	err = cannabus_find_free_ioop(&ioOp);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_find_free_ioop: %d\n", err);
+		return err;
+	}
+
+	// set up IOOP
+	err = cannabus_ioop_setup(ioOp, device, reg, callback, context, false);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_ioop_setup: %d\n", err);
+		return err;
+	}
+
+	// send read request on the wire
+	cannabus_operation_t op;
+	memset(&op, 0, sizeof(op));
+
+	op.reg = (reg & 0x7FFUL);
+	op.addr = device;
+
+	op.broadcast = (device == 0xFFFF) ? 1 : 0;
+
+	op.rtr = 0;
+
+	op.data_len = dataLen & 0x0F;
+	memcpy(&op.data, data, dataLen);
+
+	err = cannabus_send_op(&op);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_send_op: %d\n", err);
+		return err;
+	}
+
+	// activate timer (set its period)
+	ok = xTimerChangePeriod(ioOp->timer, timeout, portMAX_DELAY);
+	return (ok == pdTRUE) ? kErrSuccess : kErrTimer;
+}
+
+
+
+/**
+ * Sets up an IOOP for a read/write of the given register on the given device.
+ */
+int cannabus_ioop_setup(cannabus_ioop_t *ioOp, cannabus_addr_t device, uint16_t reg,
+		cannabus_io_callback_t callback, uint32_t context, bool read) {
+	BaseType_t ok;
+
+	// acquire lock on the struct to mark it as valid
+	ok = xSemaphoreTake(gCANnabusState.ioopsMutex, portMAX_DELAY);
+
+	if(ok != pdTRUE) {
+		return kErrMutexTake;
+	}
+
+	ioOp->valid = 1;
+
+	xSemaphoreGive(gCANnabusState.ioopsMutex);
+
+	// set read/write flags
+	ioOp->read = (read == true) ? 1 : 0;
+	ioOp->write = (read == true) ? 0 : 1;
+
+	// copy state into the IO op
+	ioOp->broadcast = (device == 0xFFFF) ? 1 : 0;
+	ioOp->addr = device;
+
+	ioOp->reg = (reg & 0x7FFUL);
+
+	ioOp->callback = callback;
+	ioOp->cbContext = context;
+
+	// set up the timer
+	vTimerSetTimerID(ioOp->timer, ioOp);
+
+	// success
+	return kErrSuccess;
+}
+
+/**
+ * Finds a free IO op struct.
+ */
+int cannabus_find_free_ioop(cannabus_ioop_t **outIoOp) {
+	BaseType_t ok;
+
+	// try to take lock
+	ok = xSemaphoreTake(gCANnabusState.ioopsMutex, portMAX_DELAY);
+
+	if(ok != pdTRUE) {
+		return kErrMutexTake;
+	}
+
+	// check each ioop struct
+	for(int i = 0; i < kCannabusMaxIoRequests; i++) {
+		cannabus_ioop_t *ioOp =  &(gCANnabusState.ioops[i]);
+
+		// is this struct free?
+		if(ioOp->valid == 0) {
+			// if so, store the address in the provided argument; release mutex
+			*outIoOp = ioOp;
+
+			xSemaphoreGive(gCANnabusState.ioopsMutex);
+			return kErrSuccess;
+		}
+	}
+
+	// couldn't find a free IO op. release mutex and return
+	xSemaphoreGive(gCANnabusState.ioopsMutex);
+
+	return kErrCannabusNoFreeIOOP;
+}
+
+/**
+ * Finds an IO op struct that matches the received frame.
+ */
+int cannabus_find_matching_ioop(cannabus_operation_t *op, cannabus_ioop_t **outIoOp) {
+	BaseType_t ok;
+
+	// try to take lock
+	ok = xSemaphoreTake(gCANnabusState.ioopsMutex, portMAX_DELAY);
+
+	if(ok != pdTRUE) {
+		return kErrMutexTake;
+	}
+
+	// check each ioop struct
+	for(int i = 0; i < kCannabusMaxIoRequests; i++) {
+		// is this struct valid?
+		if(gCANnabusState.ioops[i].valid) {
+			cannabus_ioop_t *ioOp =  &(gCANnabusState.ioops[i]);
+
+			// does the register match?
+			if(ioOp->reg == op->reg) {
+				// if it's a broadcast frame, this is all we check
+				if(ioOp->broadcast) {
+					// store op in provided argument and release mutex
+					*outIoOp = ioOp;
+
+					xSemaphoreGive(gCANnabusState.ioopsMutex);
+					return kErrSuccess;
+				}
+				// if it's not a broadcast op, check address
+				else {
+					if(ioOp->addr == op->addr) {
+						// store op in provided argument and release mutex
+						*outIoOp = ioOp;
+
+						xSemaphoreGive(gCANnabusState.ioopsMutex);
+						return kErrSuccess;
+					}
+					// the address didn't match
+					else {
+						continue;
+					}
+				}
+			}
+			// register did not match
+			else {
+				continue;
+			}
+		}
+	}
+
+	// no operation matched. release mutex and return
+	xSemaphoreGive(gCANnabusState.ioopsMutex);
+
+	return kErrCannabusNoMatchingIOOP;
 }
 
 
@@ -119,13 +450,123 @@ __attribute__((noreturn)) void cannabus_task( __attribute__((unused)) void *ctx)
 			LOG("cannabus_conv_frame_to_op: %d\n", err);
 		}
 
-		// TODO: handle message here
-		err = kErrUnimplemented;
+		// handle the IO operation
+		err = cannabus_task_rx(&op);
 
 		if(err < kErrSuccess) {
 			LOG("handle_operation failed: %d\n", err);
 		}
 	}
+}
+
+/**
+ * Calls any necessary IO callbacks for the received frame.
+ *
+ * There is a possible race condition if the task gets preempted before the
+ * timer is cancalled, but the timer fires on the next tick. We don't handle
+ * this in any special way, since we can't wrap xTimerStop() in a critical
+ * section; if this happens, the timeout values should be higher.
+ */
+int cannabus_task_rx(cannabus_operation_t *op) {
+	int err;
+	BaseType_t ok;
+
+	// find an IO op that matches
+	cannabus_ioop_t *ioOp = NULL;
+
+	err = cannabus_find_matching_ioop(op, &ioOp);
+
+	if(err < kErrSuccess) {
+		LOG("cannabus_find_matching_ioop: %d\n", err);
+		return err;
+	}
+
+	if(ioOp == NULL) {
+		return kErrCannabusUnexpectedFrame;
+	}
+
+	// make sure the ACK bit is set
+	if(op->ack) {
+		// if not a broadcast frame, cancel timer
+		if(ioOp->broadcast == 0) {
+			ok = xTimerStop(ioOp->timer, portMAX_DELAY);
+
+			if(ok != pdTRUE) {
+				LOG("xTimerStop: %d\n", ok);
+			}
+		}
+
+		// execute the callback
+		err = ioOp->callback(kErrSuccess, ioOp->cbContext, op);
+
+		if(err < kErrSuccess) {
+			LOG("ioOp->callback(): %d\n", err);
+
+			// ignore the error though
+	//		return err;
+		}
+
+		// mark the io op as invalid (free)
+		ok = xSemaphoreTake(gCANnabusState.ioopsMutex, portMAX_DELAY);
+
+		if(ok != pdTRUE) {
+			return kErrMutexTake;
+		}
+
+		ioOp->valid = 0;
+
+		xSemaphoreGive(gCANnabusState.ioopsMutex);
+	} else {
+		// TODO: this might be too aggressive in declaring failure
+		LOG("operation 0x%08x matches IOOP 0x%08x (device 0x%04x, reg 0x%03x) but has ACK=0\n",
+				op, ioOp, ioOp->addr, ioOp->reg);
+
+		return kErrCannabusUnexpectedFrame;
+	}
+
+	// nothing failed so we're good
+	return kErrSuccess;
+}
+
+/**
+ * IO op timeout callback
+ */
+void cannabus_ioop_timeout_callback(TimerHandle_t timer) {
+	int err;
+	BaseType_t ok;
+
+	// get timer ID (IO state struct)
+	cannabus_ioop_t *ioOp = (cannabus_ioop_t *) pvTimerGetTimerID(timer);
+
+	if(ioOp == NULL) {
+		LOG("CANnabus timeout fired with NULL timer id (timer 0x%08x)\n", timer);
+		return;
+	}
+
+	// make sure this op is still valid
+	if(ioOp->valid == 0) {
+		LOG("CANnabus timeout fired with invalid IOOp (IOOp 0x%08x)\n", ioOp);
+		return;
+	}
+
+	// run callback
+	err = ioOp->callback(kErrCannabusTimeout, ioOp->cbContext, NULL);
+
+	if(err < kErrSuccess) {
+		LOG("ioOp->callback(): %d\n", err);
+	}
+
+	// mark the io op as invalid (free)
+	ok = xSemaphoreTake(gCANnabusState.ioopsMutex, portMAX_DELAY);
+
+	if(ok != pdTRUE) {
+		LOG("xSemaphoreTake: %d\n", ok);
+		// XXX: we should probably return
+	}
+
+	ioOp->valid = 0;
+
+	xSemaphoreGive(gCANnabusState.ioopsMutex);
 }
 
 

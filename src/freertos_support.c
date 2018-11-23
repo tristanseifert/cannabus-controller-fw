@@ -59,7 +59,7 @@ void vApplicationGetTimerTaskMemory(StaticTask_t **taskTCB, StackType_t **taskSt
  * release builds this resets the system.
  */
 void vApplicationStackOverflowHook(TaskHandle_t xTask __attribute__((unused)), char *pcTaskName) {
-	LOG("stack overflow in task %s", pcTaskName);
+	LOG("!!! Stack overflow in task %s", pcTaskName);
 
 #ifdef DEBUG
 	__asm volatile("bkpt 0");

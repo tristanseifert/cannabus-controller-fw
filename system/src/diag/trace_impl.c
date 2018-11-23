@@ -74,6 +74,9 @@ void trace_initialize(void) {
 	// TX enable, oversample 16x, even parity,
 	USART2->CR1 = USART_CR1_TE | USART_CR1_UE;
 #endif
+
+	// write a couple newlines
+	trace_write("\n\n", 2);
 }
 
 

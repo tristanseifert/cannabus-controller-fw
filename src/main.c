@@ -52,11 +52,11 @@ __attribute__((noreturn)) int main(int argc __attribute__((__unused__)), char* a
 	// initialize hardware
 	init_hardware();
 
-	// initialize I2C interface
-	controller_i2c_init();
-
 	// initialize CANnabus
 	controller_cannabus_init();
+
+	// initialize I2C interface
+	controller_i2c_init();
 
 	// start FreeRTOS scheduler. this should not return
 	vTaskStartScheduler();

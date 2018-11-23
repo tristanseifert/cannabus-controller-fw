@@ -17,6 +17,8 @@
 /// CANnabus version
 extern const uint8_t kCannabusVersion;
 
+
+
 /**
  * CANnabus error codes
  */
@@ -25,6 +27,9 @@ enum {
 	kErrCannabusNodeIdMismatch		= -42001,
 	kErrCannabusInvalidFrameSize	= -42002,
 	kErrCannabusCRCInvalid			= -42003,
+	kErrCannabusNoFreeIOOP			= -42004,
+	kErrCannabusNoMatchingIOOP		= -42005,
+	kErrCannabusUnexpectedFrame		= -42006,
 };
 
 /**
@@ -55,21 +60,21 @@ typedef struct {
  */
 typedef struct {
 	/// was this message received?
-	uint16_t rx			: 1;
+	uint16_t rx						: 1;
 
 	/// was this a broadcast message?
-	uint16_t broadcast	: 1;
+	uint16_t broadcast				: 1;
 	/// register to access
-	uint16_t reg		: 11;
+	uint16_t reg					: 11;
 	/// was this message a remote transmission request?
-	uint16_t rtr		: 1;
+	uint16_t rtr					: 1;
 	/// was this frame an acknowledgement?
-	uint16_t ack		: 1;
+	uint16_t ack					: 1;
 	/// is this frame marked as 'high priority?'
-	uint16_t	 priority	: 1;
+	uint16_t priority				: 1;
 
 	/// is the address of this frame specified specifically?
-	uint16_t addrValid	: 1;
+	uint16_t addrValid				: 1;
 	/// address to use instead of the device address
 	cannabus_addr_t addr;
 
@@ -79,6 +84,13 @@ typedef struct {
 	/// data (up to 8 bytes)
 	uint8_t data[8];
 } cannabus_operation_t;
+
+
+
+/**
+ * Callback for a register access on a remote device.
+ */
+typedef int (*cannabus_io_callback_t)(int, uint32_t, cannabus_operation_t *);
 
 
 
@@ -128,6 +140,53 @@ int cannabus_init(cannabus_addr_t addr, const cannabus_callbacks_t *callbacks);
  * Changes the node's address.
  */
 int cannabus_set_address(cannabus_addr_t addr);
+
+/**
+ * Sets the timeout for register read operations.
+ *
+ * @note Timeouts are specified in ticks, which are 10ms.
+ */
+int cannabus_set_read_timeout(uint32_t timeout);
+/**
+ * Returns the read timeout.
+ */
+uint32_t cannabus_get_read_timeout(void);
+
+/**
+ * Sets the timeout for register write operations.
+ *
+ * @note Timeouts are specified in ticks, which are 10ms.
+ */
+int cannabus_set_write_timeout(uint32_t timeout);
+/**
+ * Returns the write timeout.
+ */
+uint32_t cannabus_get_write_timeout(void);
+
+
+
+/**
+ * Performs a read from the given device's register.
+ *
+ * If the device address is the broadcast address (0xFFFF), the callback is
+ * called for every frame that's received up to the timeout.
+ *
+ * @note If `timeout` is zero, the default timeout value for reads is used.
+ */
+int cannabus_reg_read(cannabus_addr_t device, uint16_t reg,
+		cannabus_io_callback_t callback, uint32_t context, uint32_t timeout);
+
+/**
+ * Performs a write to the given device's register.
+ *
+ * Writing to the broadcast address is not something that's implemented, even
+ * though it's technically possible.
+ *
+ * @note If `timeout` is zero, the default timeout value for writes is used.
+ */
+int cannabus_reg_write(cannabus_addr_t device, uint16_t reg, void *data,
+		size_t dataLen, cannabus_io_callback_t callback, uint32_t context,
+		uint32_t timeout);
 
 
 

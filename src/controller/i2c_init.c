@@ -26,7 +26,7 @@
 #define kNumRegs					44
 
 // Log register accesses
-#define LOG_REG_ACCESS			1
+#define LOG_REG_ACCESS			0
 
 /// I2C interface state
 controller_i2c_state_t gState;
@@ -48,6 +48,7 @@ static const i2c_callbacks_t gCallbacks = {
  */
 static const controller_i2c_reg_init_t gInitRoutines[] = {
 	reg_init_version,
+	reg_init_cannabus_control,
 	NULL
 };
 
@@ -81,7 +82,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	// Reg 0x05: CANnabus control
 	{
 		.read = reg_read_nop,
-		.write = reg_write_nop
+		.write = reg_write_cannabus_control
 	},
 	// Reg 0x06: CANnabus device ID
 	{

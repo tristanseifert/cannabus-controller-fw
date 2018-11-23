@@ -18,7 +18,7 @@
 
 
 /// Size of the controller task's stack
-#define kControllerStackSize		75
+#define kControllerStackSize		100
 
 /**
  * Notifications for the controller task
@@ -29,9 +29,11 @@ typedef enum {
 
 	/// start discovery process
 	kNotificationStartDiscovery		= (1 << 0),
+	/// notification process complete
+	kNotificationDiscoveryDone		= (1 << 1),
 
 	kNotificationAny 				= (kNotificationFrameReceived |
-			kNotificationStartDiscovery)
+			kNotificationStartDiscovery | kNotificationDiscoveryDone)
 } controller_i2c_task_notification_t;
 
 
@@ -93,9 +95,7 @@ typedef struct {
 		/// is device discovery in progress?
 		unsigned int inProgress		: 1;
 
-		/// how long to wait for devices to respond
-		unsigned int timeoutReload	: 8;
-		/// current timeout counter
+		/// number of ticks to wait for discovery to complete
 		unsigned int timeout		: 8;
 
 		/// were more than the maximum number of devices discovered?

@@ -25,6 +25,8 @@ enum {
 	kErrSemaphoreCreationFailed	= -1003,
 	/// could not create a queue (xQueueCreate* returned NULL)
 	kErrQueueCreationFailed		= -1004,
+	/// could not create a timer (xTimerCreate* returned NULL)
+	kErrTimerCreationFailed		= -1005,
 
 	/// an error occurred when receiving from a queue
 	kErrQueueReceive			= -1010,
@@ -33,6 +35,14 @@ enum {
 
 	/// an error occurred when notifying another task
 	kErrNotify					= -1020,
+
+	/// an error occurred when trying to take a mutex
+	kErrMutexTake				= -1030,
+	/// an error occurred when trying to give a mutex
+	kErrMutexGive				= -1031,
+
+	/// error when changing a timer's state
+	kErrTimer					= -1040,
 
 };
 
