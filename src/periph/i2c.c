@@ -48,6 +48,15 @@ int i2c_init(const i2c_callbacks_t *callbacks, i2c_register_t *regs, uint8_t num
 	i2c_init_gpio();
 	i2c_init_peripheral();
 
+	// set up task message queue
+	gI2CState.msgQueue = xQueueCreateStatic(kTaskMsgQueueSize,
+			sizeof(i2c_task_msg_t), (void *) &gI2CState.msgQueueBuffer,
+			&gI2CState.msgQueueStruct);
+
+	if(gI2CState.msgQueue == NULL) {
+		return kErrQueueCreationFailed;
+	}
+
 	// set up the I2C task
 	gI2CState.task = xTaskCreateStatic(i2c_task, "I2C",
 			kI2CStackSize, NULL, kTaskPriorityI2C,
@@ -159,43 +168,80 @@ void i2c_init_begin(void) {
 __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
 	int err;
 	BaseType_t ok;
-	uint32_t notification;
+	i2c_task_msg_t msg;
 
 	LOG_PUTS("I2C: ready");
 
 	while(1) {
-		// wait for the task notification
-		ok = xTaskNotifyWait(0, kNotificationAny, &notification, portMAX_DELAY);
+		// dequeue a message
+		ok = xQueueReceive(gI2CState.msgQueue, &msg, portMAX_DELAY);
 
 		if(ok != pdTRUE) {
-			LOG("xTaskNotifyWait: %d\n", ok);
+			LOG("xQueueReceive: %d\n", ok);
 			continue;
 		}
 
-		// was a register read?
-		if(notification & kNotificationRead) {
-			uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
-			err = gI2CState.cb.read(reg);
+		// reset per-message state
+		err = kErrSuccess;
 
-			if(err < kErrSuccess) {
-				LOG("I2C: read callback failed %d\n", err);
-			}
+		// handle message
+		switch(msg.type) {
+			// no-op
+			case kTaskMsgTypeNop:
+				break;
+
+			// notification from ISR
+			case kTaskMsgTypeNotification:
+				err = i2c_task_notification(&msg);
+				break;
+
+			// unknown
+			default:
+				LOG("I2C: unknown message type %d\n", msg.type);
+				break;
 		}
-		// was a register written?
-		if(notification & kNotificationWrite) {
-			uint8_t reg = (uint8_t) (gI2CState.notificationReg & 0xFF);
-			err = gI2CState.cb.written(reg);
 
-			if(err < kErrSuccess) {
-				LOG("I2C: write callback failed %d\n", err);
-			}
-		}
-
-		// did a bus error occurr?
-		if(notification & kNotificationBusErr) {
-			LOG("I2C: bus error, ISR = 0x%08x\n", I2C1->ISR);
+		// did an error occur?
+		if(err < kErrSuccess) {
+			LOG("I2C: error handling message type %d: %d\n", msg.type, err);
 		}
 	}
+}
+
+/**
+ * Handles an ISR notification message.
+ */
+int i2c_task_notification(i2c_task_msg_t *msg) {
+	int err = kErrSuccess;
+
+	const uint32_t notification = msg->notification.type;
+
+	// was a register read?
+	if(notification & kNotificationRead) {
+		const uint8_t reg = (msg->notification.data & 0xFF);
+
+		err = gI2CState.cb.read(reg);
+
+		if(err < kErrSuccess) {
+			LOG("I2C: read callback failed %d\n", err);
+		}
+	}
+	// was a register written?
+	else if(notification & kNotificationWrite) {
+		const uint8_t reg = (msg->notification.data & 0xFF);
+
+		err = gI2CState.cb.written(reg);
+
+		if(err < kErrSuccess) {
+			LOG("I2C: write callback failed %d\n", err);
+		}
+	}
+	// did a bus error occurr?
+	else if(notification & kNotificationBusErr) {
+		LOG("I2C: bus error, ISR = 0x%08x\n", msg->notification.data);
+	}
+
+	return err;
 }
 
 
@@ -216,8 +262,8 @@ __attribute__((noreturn)) void i2c_task(void *ctx __attribute__((unused))) {
  * 5.	Wait for STOP condition, reset internal state.
  */
 void I2C1_IRQHandler(void) {
-	uint32_t bits = 0;
-	BaseType_t ok, higherPriorityWoken = pdFALSE;
+	int err = kErrSuccess;
+	BaseType_t higherPriorityWoken = pdFALSE;
 
 	// check the interrupt
 	uint32_t isr = I2C1->ISR;
@@ -252,7 +298,7 @@ void I2C1_IRQHandler(void) {
 		I2C1->ICR = I2C_ICR_BERRCF;
 
 		// notify task
-		bits |= kNotificationBusErr;
+		err = i2c_irq_notify(kNotificationBusErr, isr, &higherPriorityWoken);
 	}
 	// did a STOP condition occur?
 	if(isr & I2C_ISR_STOPF) {
@@ -260,23 +306,20 @@ void I2C1_IRQHandler(void) {
 
 		// call read callback if readCounter != 0
 		if(gI2CState.readCounter != 0) {
-			gI2CState.notificationByteCounter = gI2CState.readCounter;
-			bits |= kNotificationRead;
+			uint32_t data = (gI2CState.reg & 0xFF) | ((gI2CState.readCounter & 0xFF) << 8);
+			err = i2c_irq_notify(kNotificationRead, data, &higherPriorityWoken);
 
 			// increment global counters
 			gI2CState.totalNumReads++;
 		}
 		// call write callback if writeCounter != 0
 		else if(gI2CState.writeCounter != 0) {
-			gI2CState.notificationByteCounter = gI2CState.writeCounter;
-			bits |= kNotificationWrite;
+			uint32_t data = (gI2CState.reg & 0xFF) | ((gI2CState.writeCounter & 0xFF) << 8);
+			err = i2c_irq_notify(kNotificationWrite, data, &higherPriorityWoken);
 
 			// increment global counters
 			gI2CState.totalNumWrites++;
 		}
-
-		// set register used for notification
-		gI2CState.notificationReg = gI2CState.reg;
 
 		// reset register state
 		gI2CState.regLatched = false;
@@ -337,14 +380,9 @@ void I2C1_IRQHandler(void) {
 		i2c_irq_tx();
 	}
 
-
-	// send notification if needed
-	if(bits) {
-		ok = xTaskNotifyFromISR(gI2CState.task, bits, eSetBits,
-				&higherPriorityWoken);
-
-		// we don't use the result of the call, can't do much anyways
-		(void) ok;
+	// break into debugger if there was an error
+	if(err < kErrSuccess) {
+		asm volatile("bkpt 0");
 	}
 
 	// switch tasks if needed
@@ -379,4 +417,25 @@ static void i2c_irq_tx(void) {
 	else {
 		I2C1->TXDR = 0xFF;
 	}
+}
+
+/**
+ * Sends a notification to the I2C task.
+ */
+static int i2c_irq_notify(uint32_t notification, uint32_t data,
+		BaseType_t *higherPriorityWoken) {
+	BaseType_t ok;
+
+	// construct message
+	i2c_task_msg_t msg;
+
+	msg.type = kTaskMsgTypeNotification;
+
+	msg.notification.type = notification;
+	msg.notification.data = data;
+
+	// now, send the message
+	ok = xQueueSendToBackFromISR(gI2CState.msgQueue, &msg, higherPriorityWoken);
+
+	return (ok == pdTRUE) ? kErrSuccess : kErrQueueSend;
 }

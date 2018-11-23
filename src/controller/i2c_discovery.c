@@ -30,7 +30,6 @@ int controller_discover(void) {
 
 	// load timer
 	gState.discovery.timeout = gState.discovery.timeoutReload;
-
 	LOG("Controller: discovery timeout %u ticks\n", gState.discovery.timeout);
 
 	// send discovery frame (read register 0x0000 from device 0xFFFF)
@@ -74,6 +73,9 @@ int controller_discover(void) {
 	host_irq_set(kIrqLineDiscoveryDone, kLineAsserted);
 	reg_update_irq_regs();
 
+	LOG("Controller: discovery done, found %d devices\n",
+			gState.discovery.devices);
+
 	// return status
 	return kErrSuccess;
 }
@@ -85,6 +87,19 @@ int controller_discover(void) {
  */
 void reg_disc_update(void) {
 	uint32_t reg = 0;
+
+	// update the discovery control register (START flag)
+	reg = controller_i2c_get_reg(0x09, true);
+
+	reg &= 0x80FF0000; // ignore reserved bits
+
+	if(gState.discovery.inProgress) {
+		reg |= REG_BIT(31);
+	} else {
+		reg &= ~REG_BIT(31);
+	}
+
+	controller_i2c_set_reg(0x09, true, reg);
 
 	// update the mailbox status register
 	reg = (gState.discovery.devices * 2) & 0xFF;
@@ -101,6 +116,7 @@ void reg_disc_update(void) {
 void reg_disc_update_mailbox(void) {
 	int mailboxOffset = gState.discovery.mailboxView;
 
+	// copy the next two device IDs into it
 	for(int i = 0; i < 2; i++) {
 		// get device id
 		uint16_t id = gState.discovery.deviceIds[mailboxOffset];
@@ -136,6 +152,9 @@ int reg_write_disc_control(uint8_t reg __attribute__((unused)),
 		uint32_t writtenValue) {
 	BaseType_t ok;
 
+	// copy value into register
+	controller_i2c_set_reg(reg, true, writtenValue);
+
 	// copy timeout value (if not all zeros)
 	if(writtenValue & 0x00FF0000) {
 		gState.discovery.timeoutReload = (writtenValue & 0x00FF0000) >> 16;
@@ -143,10 +162,8 @@ int reg_write_disc_control(uint8_t reg __attribute__((unused)),
 
 	// if the start bit is set, set up and notify task
 	if(writtenValue & REG_BIT(31)) {
-		// reset state
+		// reset state and mailbox
 		gState.discovery.inProgress = 1;
-
-		// reset mailbox
 		reg_disc_reset_mailbox();
 
 		// finally, update discovery registers

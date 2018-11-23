@@ -406,6 +406,9 @@ __attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unus
 			continue;
 		}
 
+		// set the busy flag
+		gRegs[0x00].read[0] |= REG_BIT(0);
+
 		// should we start discovery?
 		if(notification & kNotificationStartDiscovery) {
 			err = controller_discover();
@@ -414,6 +417,9 @@ __attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unus
 				LOG("controller_discover: %d\n", err);
 			}
 		}
+
+		// clear the busy flag
+		gRegs[0x00].read[0] &= (uint8_t) (~REG_BIT(0));
 	}
 }
 

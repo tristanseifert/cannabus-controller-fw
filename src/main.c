@@ -39,6 +39,8 @@ __attribute__((noreturn)) int main(int argc __attribute__((__unused__)), char* a
 	trace_initialize();
 	LOG("cannabus-controller-fw, git rev %s\n", GIT_INFO);
 
+	LOG("tick rate: %dHz\n", configTICK_RATE_HZ);
+
 #ifdef STM32F042
 	LOG_PUTS("hw: STM32F042");
 #endif

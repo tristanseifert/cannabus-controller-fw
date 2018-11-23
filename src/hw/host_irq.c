@@ -21,6 +21,9 @@
 
 #include <string.h>
 
+/// should host IRQ changes be logged?
+#define HOST_IRQ_LOG				0
+
 /// global state
 static host_irq_state_t gIrqState;
 
@@ -113,7 +116,9 @@ int host_irq_mask(unsigned int line, host_irq_line_mask_t state) {
 	// increment output counter and log
 	gIrqState.numUpdates++;
 
+#if HOST_IRQ_LOG
 	LOG("HostIRQ: mask 0x%08x\n", gIrqState.lineMask);
+#endif
 
 	return kErrSuccess;
 }
@@ -142,7 +147,9 @@ int host_irq_set(unsigned int line, host_irq_line_state_t state) {
 	// increment output counter and log
 	gIrqState.numUpdates++;
 
+#if HOST_IRQ_LOG
 	LOG("HostIRQ: state 0x%08x\n", gIrqState.lineState);
+#endif
 
 	return kErrSuccess;
 }
@@ -197,5 +204,7 @@ void host_irq_update(void) {
 	taskEXIT_CRITICAL();
 
 	// log
+#if HOST_IRQ_LOG
 	LOG("HostIRQ: result 0x%08x\n", gIrqState.result);
+#endif
 }

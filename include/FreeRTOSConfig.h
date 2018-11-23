@@ -50,7 +50,7 @@ extern uint32_t SystemCoreClock;
 // kernel ticks
 #define configUSE_TICK_HOOK				0
 #define configCPU_CLOCK_HZ				SystemCoreClock
-#define configTICK_RATE_HZ				((TickType_t) 1000)
+#define configTICK_RATE_HZ				((TickType_t) 100)
 #define configUSE_16_BIT_TICKS			0
 
 // task priorities and stack sizes
