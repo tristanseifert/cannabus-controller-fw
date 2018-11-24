@@ -90,7 +90,7 @@ int controller_discover_io_callback(int err,
 		ok = xTaskNotify(gState.task, kNotificationDiscoveryDone, eSetBits);
 
 		if(ok != pdTRUE) {
-			LOG("xTaskNotify failed: %d\n", ok);
+			LOG("xTaskNotify: %d\n", ok);
 			return kErrNotify;
 		}
 	}
@@ -98,7 +98,30 @@ int controller_discover_io_callback(int err,
 	else if(err == kErrSuccess) {
 		LOG("controller_discover_io_callback: frame from 0x%04x\n", op->addr);
 
-		// TODO: write into mailbox
+		// abort if we didn't get at least two bytes in this frame
+		if(op->data_len < 2) {
+			LOG("controller_discover_io_callback: received frame with only %d bytes\n", op->data_len);
+		}
+		// we received enough bytes, get device id
+		else {
+			// get device id from data (bytes 1-2)
+			uint16_t id = (uint16_t) ((op->data[0] << 8) | (op->data[1]));
+
+			// iterate over each device ID; write it if it's zero
+			for(int i = 0; i < kDiscoveryMaxDevices; i++) {
+				// is this entry null?
+				if(gState.discovery.deviceIds[i] == 0) {
+					// if so, copy ID and increment devices counter
+					gState.discovery.deviceIds[i] = id;
+					gState.discovery.devices++;
+
+					return kErrSuccess;
+				}
+			}
+
+			// we couldn't find space for the id, set overflow flag
+			gState.discovery.dataOverflow = 1;
+		}
 	}
 	// unexpected error
 	else {
@@ -143,7 +166,10 @@ void reg_disc_update(void) {
  * Updates the discovery mailbox.
  */
 void reg_disc_update_mailbox(void) {
+	// get offset and ensure it's in bounds
 	int mailboxOffset = gState.discovery.mailboxView;
+
+	mailboxOffset = (mailboxOffset % kDiscoveryMaxDevices);
 
 	// copy the next two device IDs into it
 	for(int i = 0; i < 2; i++) {
@@ -168,7 +194,7 @@ void reg_disc_reset_mailbox(void) {
 	gState.discovery.devices = 0;
 	gState.discovery.mailboxView = 0;
 
-	// also, clear the buffer
+	// also, clear the buffer (we look for 0x0000 to find free ones)
 	memset(&gState.discovery.deviceIds, 0, sizeof(gState.discovery.deviceIds));
 }
 
@@ -202,7 +228,7 @@ int reg_write_disc_control(uint8_t reg __attribute__((unused)),
 		ok = xTaskNotify(gState.task, kNotificationStartDiscovery, eSetBits);
 
 		if(ok != pdTRUE) {
-			LOG("xTaskNotify failed: %d\n", ok);
+			LOG("xTaskNotify: %d\n", ok);
 			return kErrNotify;
 		}
 	}
@@ -231,10 +257,14 @@ int reg_write_disc_mailbox_status(uint8_t reg __attribute__((unused)),
  */
 int reg_read_disc_mailbox(uint8_t reg __attribute__((unused)),
 		uint32_t readValue __attribute__((unused))) {
-	// increment the mailbox view
+	// increment the mailbox view (by two entries since the reg is 32 bits)
 	gState.discovery.mailboxView += 2;
 
-	// XXX: no bounds checking, the mailbox will just wrap
+	// ensure it's in bounds
+	if(gState.discovery.mailboxView >= kDiscoveryMaxDevices) {
+		gState.discovery.mailboxView = 0;
+	}
+//	gState.discovery.mailboxView = (gState.discovery.mailboxView % kDiscoveryMaxDevices);
 
 	// Output the next two device IDs on the output mailbox
 	reg_disc_update_mailbox();

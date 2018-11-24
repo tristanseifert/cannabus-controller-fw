@@ -14,6 +14,32 @@
 
 #include <stdint.h>
 
+/// maximum number of devices to allocate space for in the discovery struct
+#define kDiscoveryMaxDevices		8
+
+/**
+ * Discovery state
+ */
+typedef struct {
+	/// is device discovery in progress?
+	unsigned int inProgress		: 1;
+
+	/// number of ticks to wait for discovery to complete
+	unsigned int timeout		: 8;
+
+	/// were more than the maximum number of devices discovered?
+	unsigned int dataOverflow	: 1;
+	/// number of devices that have been discovered
+	unsigned int devices		: 4;
+
+	/// what offset into the device IDs array is output on the mailbox?
+	unsigned int mailboxView	: 3;
+
+	/// IDs of discovered devices
+	uint16_t deviceIds[kDiscoveryMaxDevices];
+} controller_i2c_discovery_state_t;
+
+
 /**
  * Task entry point for discovering devices.
  */

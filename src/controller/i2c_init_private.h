@@ -8,6 +8,8 @@
 #ifndef CONTROLLER_I2C_INIT_PRIVATE_H_
 #define CONTROLLER_I2C_INIT_PRIVATE_H_
 
+#include "i2c_discovery.h"
+
 #include <stdint.h>
 #include <stddef.h>
 #include <stdbool.h>
@@ -91,24 +93,7 @@ typedef struct {
 	unsigned int wrTimeoutIrqs		: 2;
 
 	/// discovery related status
-	struct {
-		/// is device discovery in progress?
-		unsigned int inProgress		: 1;
-
-		/// number of ticks to wait for discovery to complete
-		unsigned int timeout		: 8;
-
-		/// were more than the maximum number of devices discovered?
-		unsigned int dataOverflow	: 1;
-		/// number of devices that have been discovered
-		unsigned int devices		: 4;
-
-		/// what offset into the device IDs array is output on the mailbox?
-		unsigned int mailboxView	: 3;
-
-		/// IDs of discovered devices
-		uint16_t deviceIds[16];
-	} discovery;
+	controller_i2c_discovery_state_t discovery;
 
 	/// FreeRTOS task handle
 	TaskHandle_t task;
