@@ -9,6 +9,7 @@
 #define CONTROLLER_I2C_INIT_PRIVATE_H_
 
 #include "i2c_discovery.h"
+#include "i2c_cannabus.h"
 
 #include <stdint.h>
 #include <stddef.h>
@@ -94,6 +95,9 @@ typedef struct {
 
 	/// discovery related status
 	controller_i2c_discovery_state_t discovery;
+
+	/// CANnabus glue state
+	controller_i2c_cannabus_state_t cannabus;
 
 	/// FreeRTOS task handle
 	TaskHandle_t task;

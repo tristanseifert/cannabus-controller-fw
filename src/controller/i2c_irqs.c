@@ -122,6 +122,9 @@ int reg_write_cannabus_irq_status(uint8_t reg __attribute__((unused)),
 /**
  * Updates the state of IRQ lines related to register reads and writes, as well
  * as updating IRQ status registers.
+ *
+ * Read/write mailbox IRQs are updated by checking the related counters in
+ * the status struct. These are updated whenever a transaction completes.
  */
 void reg_update_irqs(void) {
 	int err;
@@ -170,6 +173,7 @@ void reg_update_irqs(void) {
  */
 void reg_update_irq_regs(void) {
 	uint32_t irqStatus = 0;
+	controller_i2c_cannabus_mailbox_t *box;
 
 	// update the controller IRQ status field
 	if(host_irq_get(kIrqLineControllerError) == kLineAsserted) {
@@ -181,12 +185,19 @@ void reg_update_irq_regs(void) {
 
 	controller_i2c_set_reg(0x03, true, irqStatus);
 
+	// update irq source in device status reg for controller IRQ sources
+	if(irqStatus) {
+		gRegs[0x00].read[3] = 0x01;
+	} else {
+		gRegs[0x00].read[3] = 0x00;
+	}
+
 
 	// update the CANnabus IRQ state from IRQ lines
 	irqStatus = 0;
 
 	if(host_irq_get(kIrqLineDiscoveryDone) == kLineAsserted) {
-		irqStatus |= REG_BIT(26);
+		irqStatus |= REG_BIT(16);
 	}
 
 	// update the read IRQs from IRQ counters
@@ -200,7 +211,15 @@ void reg_update_irq_regs(void) {
 		irqStatus |= REG_BIT(29);
 	}
 
-	// TODO: set which read mailboxes generated events
+	// set which read mailboxes generated events
+	for(int i = 0; i < kNumReadMailboxes; i++) {
+		box = &gState.cannabus.readMailbox[i];
+
+		// are any of the flags set on this mailbox?
+		if(box->req_ok | box->req_err | box->req_timeout) {
+			irqStatus |= REG_BIT((8 + (i & 0x3)));
+		}
+	}
 
 
 	// update the write IRQs from the IRQ counters
@@ -214,20 +233,22 @@ void reg_update_irq_regs(void) {
 		irqStatus |= REG_BIT(28);
 	}
 
-	// TODO: set which write mailboxes generated events
+	// set which write mailboxes generated events
+	for(int i = 0; i < kNumWriteMailboxes; i++) {
+		box = &gState.cannabus.writeMailbox[i];
+
+		// are any of the flags set on this mailbox?
+		if(box->req_ok | box->req_err | box->req_timeout) {
+			irqStatus |= REG_BIT((0 + (i & 0x3)));
+		}
+	}
 
 	// update the register
 	controller_i2c_set_reg(0x08, true, irqStatus);
 
 
-	// update the controller status register irq source flags
-	if(controller_i2c_get_reg(0x03, true)) {
-		gRegs[0x00].read[3] = 0x01;
-	} else {
-		gRegs[0x00].read[3] = 0x00;
-	}
-
-	if(controller_i2c_get_reg(0x08, true)) {
+	// update irq source in device status reg for CANnabus IRQ sources
+	if(irqStatus) {
 		gRegs[0x00].read[2] = 0x01;
 	} else {
 		gRegs[0x00].read[2] = 0x00;
