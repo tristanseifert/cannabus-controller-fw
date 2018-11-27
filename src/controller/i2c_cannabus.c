@@ -208,6 +208,87 @@ int reg_write_cannabus_mailbox_status(uint8_t reg, uint32_t writtenValue) {
 
 
 /**
+ * Handles a write to a mailbox data register.
+ *
+ * This is only valid for register write mailboxes: for read mailboxes, data
+ * will be overwritten but nothing will happen.
+ */
+int reg_write_cannabus_mailbox_data(uint8_t reg, uint32_t writtenValue) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox
+	box = controller_cannabus_get_mailbox(reg);
+
+	// ensure mailbox is not NULL
+	if(box == NULL) {
+		LOG("Controller: no read/write mailbox for reg 0x%02x\n", reg);
+
+		return kErrInvalidArgs;
+	}
+
+	// write four bytes of data into the mailbox
+	for(unsigned int i = 0; i < 4; i++) {
+		unsigned int shift = ((3 - i) * 8);
+
+		// write into the mailbox
+		box->data[box->cursor] = (uint8_t) ((writtenValue & (0xFFU << shift)) >> shift);
+
+		// advance cursor and ensure it stays in bounds (wrap if needed)
+		box->cursor = (box->cursor + 1U) % sizeof(box->data);
+
+		// increment byte counter
+		box->dataLen = (box->dataLen + 1U) % sizeof(box->data);
+	}
+
+	// update this mailbox's status register, then CANnabus interrupt state
+	reg_mailbox_status_update(reg, box);
+
+	controller_cannabus_irq_update();
+
+	// success!
+	return kErrSuccess;
+}
+
+/**
+ * Handles a read from a mailbox data register.
+ *
+ * This is really only useful for register read mailboxes: for write mailboxes,
+ * it will just read out the data previously written to the mailbox.
+ */
+int reg_read_cannabus_mailbox_data(uint8_t reg,
+		uint32_t readValue __attribute__((unused))) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox
+	box = controller_cannabus_get_mailbox(reg);
+
+	// ensure mailbox is not NULL
+	if(box == NULL) {
+		LOG("Controller: no read/write mailbox for reg 0x%02x\n", reg);
+
+		return kErrInvalidArgs;
+	}
+
+	// copy four bytes of data from the data registers
+	for(int i = 0; i < 4; i++) {
+		gRegs[reg].read[i] = box->data[box->cursor];
+
+		// advance cursor and ensure it stays in bounds (wrap if needed)
+		box->cursor = (uint8_t) ((box->cursor + 1U) % box->dataLen);
+	}
+
+	// update this mailbox's status register, then CANnabus interrupt state
+	reg_mailbox_status_update(reg, box);
+
+	controller_cannabus_irq_update();
+
+	// success!
+	return kErrSuccess;
+}
+
+
+
+/**
  * Updates CANnabus interrupt counters.
  */
 void controller_cannabus_irq_update(void) {

@@ -53,6 +53,9 @@ typedef struct {
 	uint8_t data[8];
 	/// number of bytes in the buffer that are valid
 	uint8_t dataLen;
+
+	/// read/write cursor into the data
+	uint8_t cursor;
 } controller_i2c_cannabus_mailbox_t;
 
 /**
@@ -95,6 +98,22 @@ int reg_write_cannabus_irq_config(uint8_t reg, uint32_t writtenValue);
  * Handles writes to a mailbox status register.
  */
 int reg_write_cannabus_mailbox_status(uint8_t reg, uint32_t writtenValue);
+
+/**
+ * Handles a write to a mailbox data register.
+ *
+ * This is only valid for register write mailboxes: for read mailboxes, data
+ * will be overwritten but nothing will happen.
+ */
+int reg_write_cannabus_mailbox_data(uint8_t reg, uint32_t writtenValue);
+
+/**
+ * Handles a read from a mailbox data register.
+ *
+ * This is really only useful for register read mailboxes: for write mailboxes,
+ * it will just read out the data previously written to the mailbox.
+ */
+int reg_read_cannabus_mailbox_data(uint8_t reg, uint32_t readValue);
 
 
 
