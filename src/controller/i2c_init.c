@@ -123,7 +123,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 
 	// Reg 0x10: Register read 0 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x11: Register read 0 mailbox status
@@ -140,7 +140,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	kReservedRegisterHandlers,
 	// Reg 0x14: Register read 1 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x15: Register read 1 mailbox status
@@ -157,7 +157,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	kReservedRegisterHandlers,
 	// Reg 0x18: Register read 2 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x19: Register read 2 mailbox status
@@ -179,7 +179,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 
 	// Reg 0x20: Register write 0 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x21: Register write 0 mailbox status
@@ -196,7 +196,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	kReservedRegisterHandlers,
 	// Reg 0x24: Register write 1 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x25: Register write 1 mailbox status
@@ -213,7 +213,7 @@ static const controller_i2c_routines_t gRoutines[kNumRegs] = {
 	kReservedRegisterHandlers,
 	// Reg 0x28: Register write 2 control
 	{
-		.read = reg_read_nop,
+		.read = reg_write_cannabus_io_control,
 		.write = reg_write_nop
 	},
 	// Reg 0x29: Register write 2 mailbox status

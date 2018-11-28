@@ -628,9 +628,9 @@ int cannabus_conv_frame_to_op(cannabus_can_frame_t *frame, cannabus_operation_t 
 	uint16_t reg = (uint16_t) (frame->identifier & 0x7FF);
 
 	// copy fields from the CAN frame
-	op->priority = (frame->identifier & 0x10000000) ? 1 : 0;
-	op->ack = (frame->identifier & 0x08000000) ? 1 : 0;
-	op->broadcast = (nodeId == 0xFFFF) ? 1 : 0;
+	op->priority = (frame->identifier & 0x10000000) ? 1U : 0U;
+	op->ack = (frame->identifier & 0x08000000) ? 1U : 0U;
+	op->broadcast = (nodeId == 0xFFFF) ? 1U : 0U;
 	op->data_len = frame->data_len;
 	op->reg = reg;
 	op->rtr = frame->rtr;

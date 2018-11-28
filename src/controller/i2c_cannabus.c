@@ -163,6 +163,47 @@ int reg_write_cannabus_irq_config(uint8_t reg, uint32_t writtenValue) {
 
 
 /**
+ * Handles writes to a read/write control register.
+ */
+int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox
+	box = controller_cannabus_get_mailbox(reg);
+
+	// ensure mailbox is not NULL
+	if(box == NULL) {
+		LOG("Controller: no read/write mailbox for reg 0x%02x\n", reg);
+
+		return kErrInvalidArgs;
+	}
+
+	// copy device and register numbers
+	box->device = (cannabus_addr_t) ((writtenValue & 0xFFFF0000) >> 16);
+	box->reg = (writtenValue & 0x0000FFE0) >> 5;
+
+	// expected size of transfer
+	box->expectedNumBytes = (writtenValue & 0x0000001C) >> 2;
+
+	// set priority bit if needed
+	box->priority = (writtenValue & REG_BIT(1)) ? 1U : 0U;
+
+	// is the GO bit set?
+	if((writtenValue & REG_BIT(0))) {
+		// set "in use" bit
+		box->used = 1;
+
+		// TODO: actually perform transaction lol
+	}
+
+	// update mailbox status as well as the control reg (with written value)
+	reg_mailbox_status_update(reg, box);
+	controller_i2c_set_reg(reg, true, writtenValue);
+
+	return kErrSuccess;
+}
+
+/**
  * Handles writes to a mailbox status register.
  */
 int reg_write_cannabus_mailbox_status(uint8_t reg, uint32_t writtenValue) {
@@ -382,6 +423,9 @@ void controller_cannabus_mailbox_reset(controller_i2c_cannabus_mailbox_t *box) {
 
 /**
  * Updates a mailbox status register.
+ *
+ * @param reg Register number of any register for a particular mailbox. The
+ * status register is automatically calcualted from it.
  */
 void reg_mailbox_status_update(uint8_t reg, controller_i2c_cannabus_mailbox_t *box) {
 	uint32_t status = 0;
@@ -403,5 +447,49 @@ void reg_mailbox_status_update(uint8_t reg, controller_i2c_cannabus_mailbox_t *b
 	}
 
 	// set register
-	controller_i2c_set_reg(reg, true, status);
+	uint8_t statusReg = (uint8_t) ((reg & 0x3C) | 0x01);
+
+	controller_i2c_set_reg(statusReg, true, status);
+}
+
+
+
+/**
+ * IO callback for register reads.
+ *
+ * Context is the address of the read mailbox.
+ */
+int controller_cannabus_read_callback(int err, uint32_t context, cannabus_operation_t *op) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox
+	box = (controller_i2c_cannabus_mailbox_t *) context;
+
+	if(box == NULL) {
+		LOG_PUTS("Controller: NULL context on CANnabus read callback");
+		return kErrInvalidArgs;
+	}
+
+	// success
+	return kErrSuccess;
+}
+
+/**
+ * IO callback for register writes.
+ *
+ * Context is the address of the write mailbox.
+ */
+int controller_cannabus_write_callback(int err, uint32_t context, cannabus_operation_t *op) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox
+	box = (controller_i2c_cannabus_mailbox_t *) context;
+
+	if(box == NULL) {
+		LOG_PUTS("Controller: NULL context on CANnabus write callback");
+		return kErrInvalidArgs;
+	}
+
+	// success
+	return kErrSuccess;
 }

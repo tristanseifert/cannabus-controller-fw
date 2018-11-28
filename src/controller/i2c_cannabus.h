@@ -95,6 +95,11 @@ int reg_write_cannabus_irq_config(uint8_t reg, uint32_t writtenValue);
 
 
 /**
+ * Handles writes to a read/write control register.
+ */
+int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue);
+
+/**
  * Handles writes to a mailbox status register.
  */
 int reg_write_cannabus_mailbox_status(uint8_t reg, uint32_t writtenValue);
@@ -139,7 +144,25 @@ void controller_cannabus_mailbox_reset(controller_i2c_cannabus_mailbox_t *box);
 
 /**
  * Updates a mailbox status register.
+ *
+ * @param reg Register number of any register for a particular mailbox. The
+ * status register is automatically calcualted from it.
  */
 void reg_mailbox_status_update(uint8_t reg, controller_i2c_cannabus_mailbox_t *box);
+
+
+
+/**
+ * IO callback for register reads.
+ *
+ * Context is the address of the read mailbox.
+ */
+int controller_cannabus_read_callback(int err, uint32_t context, cannabus_operation_t *op);
+/**
+ * IO callback for register writes.
+ *
+ * Context is the address of the write mailbox.
+ */
+int controller_cannabus_write_callback(int err, uint32_t context, cannabus_operation_t *op);
 
 #endif /* CONTROLLER_I2C_CANNABUS_H_ */
