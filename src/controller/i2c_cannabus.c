@@ -15,6 +15,53 @@
 #include <stdint.h>
 #include <string.h>
 
+
+
+/**
+ * Handles an IO request. This message is queued when the "GO" bit on a mailbox
+ * is set, and will perform the heavy lifting of putting the transaction on the
+ * bus in the controller task rather than the I2C callback.
+ */
+int controller_cannabus_handle_request(controller_i2c_task_msg_t *msg) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox that completed
+	box = (controller_i2c_cannabus_mailbox_t *) msg->ioRequest.mailbox;
+
+	LOG("Controller: transaction completed (box 0x%08x, read %d write %d)\n",
+			box, msg->ioRequest.read, msg->ioRequest.write);
+
+	// TODO: handle this
+
+	return kErrUnimplemented;
+}
+
+/**
+ * Handles a completed read/write transaction. This updates interrupt state and
+ * status registers.
+ */
+int controller_cannabus_handle_completion(controller_i2c_task_msg_t *msg) {
+	controller_i2c_cannabus_mailbox_t *box;
+
+	// get mailbox that completed
+	box = (controller_i2c_cannabus_mailbox_t *) msg->ioComplete.mailbox;
+
+	LOG("Controller: transaction completed (box 0x%08x, status %d)\n", box,
+			msg->ioComplete.status);
+
+	// clear the "in use" bits in the mailbox
+	box->used = 0;
+
+	// update this mailbox's status register and interrupts
+	reg_mailbox_status_update(box->i2cReg, box);
+
+	// update interrupt status
+	controller_cannabus_irq_update();
+
+	// success
+	return kErrSuccess;
+}
+
 /**
  * Initializes the CANnabus control register.
  *
@@ -166,6 +213,7 @@ int reg_write_cannabus_irq_config(uint8_t reg, uint32_t writtenValue) {
  * Handles writes to a read/write control register.
  */
 int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue) {
+	BaseType_t ok;
 	controller_i2c_cannabus_mailbox_t *box;
 
 	// get mailbox
@@ -188,12 +236,44 @@ int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue) {
 	// set priority bit if needed
 	box->priority = (writtenValue & REG_BIT(1)) ? 1U : 0U;
 
+	// write the register number (used later to update it)
+	box->i2cReg = reg;
+
 	// is the GO bit set?
 	if((writtenValue & REG_BIT(0))) {
 		// set "in use" bit
 		box->used = 1;
 
-		// TODO: actually perform transaction lol
+		// set up message
+		controller_i2c_task_msg_t msg;
+		memset(&msg, 0, sizeof(msg));
+
+		msg.type = kMsgTypeRegisterIORequest;
+		msg.ioRequest.mailbox = box;
+
+		// is this for a read mailbox?
+		if((reg & 0xF0) == 0x10) {
+			// request read transaction
+			msg.ioRequest.read = 1;
+		}
+		// is it for a write mailbox?
+		else if((reg & 0xF0) == 0x20) {
+			// request write transaction
+			msg.ioRequest.write = 1;
+		}
+		// this shouldn't happen
+		else {
+			LOG("Controller: write to CANnabus control reg at invalid address 0x%02x\n", reg);
+			return kErrInvalidArgs;
+		}
+
+		// notify task
+		ok = xQueueSendToBack(gState.msgQueue, &msg, portMAX_DELAY);
+
+		if(ok != pdTRUE) {
+			LOG("xQueueSendToBack: %d\n", ok);
+			return kErrNotify;
+		}
 	}
 
 	// update mailbox status as well as the control reg (with written value)
@@ -455,11 +535,12 @@ void reg_mailbox_status_update(uint8_t reg, controller_i2c_cannabus_mailbox_t *b
 
 
 /**
- * IO callback for register reads.
+ * IO callback for register reads/writes.
  *
- * Context is the address of the read mailbox.
+ * Context is the address of the mailbox.
  */
-int controller_cannabus_read_callback(int err, uint32_t context, cannabus_operation_t *op) {
+int controller_cannabus_io_callback(int err, uint32_t context, cannabus_operation_t *op) {
+	BaseType_t ok;
 	controller_i2c_cannabus_mailbox_t *box;
 
 	// get mailbox
@@ -470,26 +551,40 @@ int controller_cannabus_read_callback(int err, uint32_t context, cannabus_operat
 		return kErrInvalidArgs;
 	}
 
-	// success
-	return kErrSuccess;
-}
+	// timeout?
+	if(err == kErrCannabusTimeout) {
+		LOG("Controller: read timeout for mailbox 0x%08x\n", box);
 
-/**
- * IO callback for register writes.
- *
- * Context is the address of the write mailbox.
- */
-int controller_cannabus_write_callback(int err, uint32_t context, cannabus_operation_t *op) {
-	controller_i2c_cannabus_mailbox_t *box;
+		// set flags
+		box->req_timeout = 1;
+	}
+	// operation completed
+	else if(err == kErrSuccess) {
+		LOG("Controller: read success for mailbox 0x%08x\n", box);
 
-	// get mailbox
-	box = (controller_i2c_cannabus_mailbox_t *) context;
+		// set ok flag, copy data
+		box->req_ok = 1;
 
-	if(box == NULL) {
-		LOG_PUTS("Controller: NULL context on CANnabus write callback");
-		return kErrInvalidArgs;
+		box->dataLen = op->data_len;
+		memcpy(box->data, op->data, sizeof(op->data));
+	}
+
+	// notify task
+	controller_i2c_task_msg_t msg;
+	memset(&msg, 0, sizeof(msg));
+
+	msg.type = kMsgTypeRegisterIOCompleted;
+	msg.ioComplete.mailbox = box;
+	msg.ioComplete.status = err;
+
+	ok = xQueueSendToBack(gState.msgQueue, &msg, portMAX_DELAY);
+
+	if(ok != pdTRUE) {
+		LOG("xQueueSendToBack: %d\n", ok);
+		return kErrNotify;
 	}
 
 	// success
 	return kErrSuccess;
 }
+

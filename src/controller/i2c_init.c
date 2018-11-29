@@ -359,13 +359,23 @@ void controller_i2c_init(void) {
 	// clear state
 	memset(&gState, 0, sizeof(gState));
 
+	// set up task message queue
+	gState.msgQueue = xQueueCreateStatic(kTaskMsgQueueSize,
+			sizeof(controller_i2c_task_msg_t), (void *) &gState.msgQueueBuffer,
+			&gState.msgQueueStruct);
+
+	if(gState.msgQueue == NULL) {
+		LOG_PUTS("Controller: couldn't create queue");
+		asm volatile("bkpt 0");
+	}
+
 	// set up the task
 	gState.task = xTaskCreateStatic(controller_i2c_task, "I2CCtrlr",
 			kControllerStackSize, NULL, kTaskPriorityController,
 			(void *) &gState.taskStack, &gState.taskTCB);
 
 	if(gState.task == NULL) {
-		LOG_PUTS("couldn't create controller task");
+		LOG_PUTS("Controller: couldn't create task");
 		asm volatile("bkpt 0");
 	}
 
@@ -394,29 +404,51 @@ void controller_i2c_init(void) {
 __attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unused))) {
 	int err;
 	BaseType_t ok;
-	uint32_t notification;
+	controller_i2c_task_msg_t msg;
 
 	LOG_PUTS("Controller: ready");
 
 	while(1) {
-		// wait for the task notification
-		ok = xTaskNotifyWait(0, kNotificationAny, &notification, portMAX_DELAY);
+		// dequeue a message
+		ok = xQueueReceive(gState.msgQueue, &msg, portMAX_DELAY);
 
 		if(ok != pdTRUE) {
-			LOG("xTaskNotifyWait: %d\n", ok);
+			LOG("xQueueReceive: %d\n", ok);
 			continue;
 		}
 
 		// set the busy flag
 		gRegs[0x00].read[0] |= REG_BIT(0);
 
-		// should we start discovery?
-		if(notification & kNotificationStartDiscovery) {
-			err = controller_discover();
+		// reset error state
+		err = kErrSuccess;
 
-			if(err < kErrSuccess) {
-				LOG("controller_discover: %d\n", err);
-			}
+		// handle message
+		switch(msg.type) {
+			// start discovery
+			case kMsgTypeStartDiscovery:
+				err = controller_discover(&msg);
+				break;
+
+			// IO request
+			case kMsgTypeRegisterIORequest:
+				err = controller_cannabus_handle_request(&msg);
+				break;
+			// IO completion
+			case kMsgTypeRegisterIOCompleted:
+				err = controller_cannabus_handle_completion(&msg);
+				break;
+
+			// unhandled message
+			default:
+				LOG("Controller: unhandled message type %d\n", msg.type);
+				break;
+		}
+
+		// handle errors
+		if(err < kErrSuccess) {
+			LOG("Controller: failed to handle message type %d: %d\n",
+					msg.type, err);
 		}
 
 		// clear the busy flag

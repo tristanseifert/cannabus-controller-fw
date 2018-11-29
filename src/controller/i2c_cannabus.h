@@ -19,6 +19,11 @@
 /// number of register write mailboxes
 #define kNumWriteMailboxes			3
 
+/// forward declare task msg type
+#ifndef controller_i2c_task_msg_t
+	typedef struct controller_i2c_task_msg controller_i2c_task_msg_t;
+#endif
+
 
 /**
  * I2C CANnabus mailbox: these are used for both reads in writes, with the
@@ -56,6 +61,9 @@ typedef struct {
 
 	/// read/write cursor into the data
 	uint8_t cursor;
+
+	/// I2C register that was written to to begin this operation
+	uint8_t i2cReg;
 } controller_i2c_cannabus_mailbox_t;
 
 /**
@@ -68,6 +76,22 @@ typedef struct {
 	/// mailboxes for register write operations
 	controller_i2c_cannabus_mailbox_t writeMailbox[kNumWriteMailboxes];
 } controller_i2c_cannabus_state_t;
+
+
+
+/**
+ * Handles an IO request. This message is queued when the "GO" bit on a mailbox
+ * is set, and will perform the heavy lifting of putting the transaction on the
+ * bus in the controller task rather than the I2C callback.
+ */
+int controller_cannabus_handle_request(controller_i2c_task_msg_t *msg);
+
+/**
+ * Handles a completed read/write transaction. This updates interrupt state and
+ * status registers.
+ */
+int controller_cannabus_handle_completion(controller_i2c_task_msg_t *msg);
+
 
 
 /**
@@ -153,16 +177,10 @@ void reg_mailbox_status_update(uint8_t reg, controller_i2c_cannabus_mailbox_t *b
 
 
 /**
- * IO callback for register reads.
+ * IO callback for register reads/writes.
  *
- * Context is the address of the read mailbox.
+ * Context is the address of the mailbox.
  */
-int controller_cannabus_read_callback(int err, uint32_t context, cannabus_operation_t *op);
-/**
- * IO callback for register writes.
- *
- * Context is the address of the write mailbox.
- */
-int controller_cannabus_write_callback(int err, uint32_t context, cannabus_operation_t *op);
+int controller_cannabus_io_callback(int err, uint32_t context, cannabus_operation_t *op);
 
 #endif /* CONTROLLER_I2C_CANNABUS_H_ */

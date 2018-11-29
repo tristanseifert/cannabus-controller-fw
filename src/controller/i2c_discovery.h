@@ -17,6 +17,11 @@
 /// maximum number of devices to allocate space for in the discovery struct
 #define kDiscoveryMaxDevices		8
 
+/// forward declare task msg type
+#ifndef controller_i2c_task_msg_t
+	typedef struct controller_i2c_task_msg controller_i2c_task_msg_t;
+#endif
+
 /**
  * Discovery state
  */
@@ -43,7 +48,7 @@ typedef struct {
 /**
  * Task entry point for discovering devices.
  */
-int controller_discover(void);
+int controller_discover(controller_i2c_task_msg_t *msg);
 
 /**
  * Callback for the discovery process. Each time we receive data, we extract the

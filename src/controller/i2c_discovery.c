@@ -23,7 +23,7 @@
 /**
  * Task entry point for discovering devices.
  */
-int controller_discover(void) {
+int controller_discover(controller_i2c_task_msg_t *msg __attribute__((unused))) {
 	BaseType_t ok;
 	uint32_t notification;
 	int err;
@@ -225,10 +225,14 @@ int reg_write_disc_control(uint8_t reg __attribute__((unused)),
 		reg_disc_update();
 
 		// notify task
-		ok = xTaskNotify(gState.task, kNotificationStartDiscovery, eSetBits);
+		controller_i2c_task_msg_t msg;
+
+		msg.type = kMsgTypeStartDiscovery;
+
+		ok = xQueueSendToBack(gState.msgQueue, &msg, portMAX_DELAY);
 
 		if(ok != pdTRUE) {
-			LOG("xTaskNotify: %d\n", ok);
+			LOG("xQueueSendToBack: %d\n", ok);
 			return kErrNotify;
 		}
 	}

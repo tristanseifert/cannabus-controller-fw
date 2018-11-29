@@ -17,27 +17,65 @@
 
 #include "FreeRTOS.h"
 #include "task.h"
+#include "queue.h"
 
 
 
 /// Size of the controller task's stack
 #define kControllerStackSize		100
+/// Number of messages to hold in the message queue
+#define kTaskMsgQueueSize		4
 
 /**
- * Notifications for the controller task
+ * Bitset of notifications for the I2C task: these are typically used inside
+ * handler functions to wait for an event.
  */
 typedef enum {
-	/// a CAN frame was received
-	kNotificationFrameReceived		= (1 << 8),
-
-	/// start discovery process
-	kNotificationStartDiscovery		= (1 << 0),
 	/// notification process complete
-	kNotificationDiscoveryDone		= (1 << 1),
-
-	kNotificationAny 				= (kNotificationFrameReceived |
-			kNotificationStartDiscovery | kNotificationDiscoveryDone)
+	kNotificationDiscoveryDone		= (1 << 1)
 } controller_i2c_task_notification_t;
+
+/**
+ * Type of task message
+ */
+typedef enum {
+	/// begin discovery process
+	kMsgTypeStartDiscovery			= 1,
+	/// perform an IO operation
+	kMsgTypeRegisterIORequest,
+	/// an IO operation completed
+	kMsgTypeRegisterIOCompleted,
+} controller_i2c_task_msg_type_t;
+
+/**
+ * Task message
+ */
+typedef struct controller_i2c_task_msg {
+	/// type
+	controller_i2c_task_msg_type_t type;
+
+	/// payload
+	union {
+		/// CANnabus IO request
+		struct {
+			/// mailbox to perform an IO for
+			void *mailbox;
+
+			/// is this a read operation?
+			unsigned int read		: 1;
+			/// is this a write operation?
+			unsigned int write		: 1;
+		} ioRequest;
+
+		/// CANnabus IO completion
+		struct {
+			/// mailbox that had an event
+			void *mailbox;
+			/// status code from CANnabus stack
+			int status;
+		} ioComplete;
+	};
+} controller_i2c_task_msg_t;
 
 
 /**
@@ -98,6 +136,13 @@ typedef struct {
 
 	/// CANnabus glue state
 	controller_i2c_cannabus_state_t cannabus;
+
+	/// message queue buffer
+	controller_i2c_task_msg_t msgQueueBuffer[kTaskMsgQueueSize];
+	/// message queue struct
+	StaticQueue_t msgQueueStruct;
+	/// message queue handle
+	QueueHandle_t msgQueue;
 
 	/// FreeRTOS task handle
 	TaskHandle_t task;
