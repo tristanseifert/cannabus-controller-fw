@@ -23,17 +23,45 @@
  * bus in the controller task rather than the I2C callback.
  */
 int controller_cannabus_handle_request(controller_i2c_task_msg_t *msg) {
+	int err;
 	controller_i2c_cannabus_mailbox_t *box;
 
 	// get mailbox that completed
 	box = (controller_i2c_cannabus_mailbox_t *) msg->ioRequest.mailbox;
 
-	LOG("Controller: transaction completed (box 0x%08x, read %d write %d)\n",
-			box, msg->ioRequest.read, msg->ioRequest.write);
+	LOG("Controller: transaction request (device 0x%04x, reg 0x%03x, read %d write %d)\n",
+			box->device, box->reg, msg->ioRequest.read, msg->ioRequest.write);
 
-	// TODO: handle this
+	// is it a read?
+	if(msg->ioRequest.read) {
+		// if so, perform a read from the register
+		err = cannabus_reg_read(box->device, box->reg,
+				controller_cannabus_io_callback, (uint32_t) box, 0);
 
-	return kErrUnimplemented;
+		if(err < kErrSuccess) {
+			LOG("Controller: cannabus_reg_read failed %d\n", err);
+			return err;
+		}
+	}
+	// is it a write?
+	else if(msg->ioRequest.write) {
+		// if so, write data to the register
+		err = cannabus_reg_write(box->device, box->reg, box->data, box->dataLen,
+				controller_cannabus_io_callback, (uint32_t) box, 0);
+
+		if(err < kErrSuccess) {
+			LOG("Controller: cannabus_reg_write failed %d\n", err);
+			return err;
+		}
+	}
+	// unknown IO request type, abort
+	else {
+		LOG("Controller: IO request is neither read nor write (0x%08x)\n", msg);
+		return kErrInvalidArgs;
+	}
+
+	// if we get down here, assume success
+	return kErrSuccess;
 }
 
 /**
@@ -241,6 +269,11 @@ int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue) {
 
 	// is the GO bit set?
 	if((writtenValue & REG_BIT(0))) {
+		// clear status bits
+		box->req_err = 0;
+		box->req_ok = 0;
+		box->req_timeout = 0;
+
 		// set "in use" bit
 		box->used = 1;
 
@@ -553,20 +586,30 @@ int controller_cannabus_io_callback(int err, uint32_t context, cannabus_operatio
 
 	// timeout?
 	if(err == kErrCannabusTimeout) {
-		LOG("Controller: read timeout for mailbox 0x%08x\n", box);
+		LOG("Controller: timeout for mailbox 0x%08x\n", box);
 
 		// set flags
 		box->req_timeout = 1;
 	}
 	// operation completed
 	else if(err == kErrSuccess) {
-		LOG("Controller: read success for mailbox 0x%08x\n", box);
+		LOG("Controller: success for mailbox 0x%08x\n", box);
 
-		// set ok flag, copy data
+		// set ok flag
 		box->req_ok = 1;
 
-		box->dataLen = op->data_len;
-		memcpy(box->data, op->data, sizeof(op->data));
+		// copy data if it was a read (reg was 0x1n)
+		if((box->i2cReg & 0xF0) == 0x10) {
+			box->dataLen = op->data_len;
+			memcpy(box->data, op->data, sizeof(op->data));
+		}
+	}
+	// undefined error
+	else {
+		LOG("Controller: other error for mailbox 0x%08x (%d)\n", box, err);
+
+		// set error flag
+		box->req_err = 1;
 	}
 
 	// notify task

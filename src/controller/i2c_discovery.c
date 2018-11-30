@@ -36,7 +36,7 @@ int controller_discover(controller_i2c_task_msg_t *msg __attribute__((unused))) 
 			gState.discovery.timeout);
 
 	if(err < kErrSuccess) {
-		LOG("cannabus_reg_read: %d\n", err);
+		LOG("Controller: cannabus_reg_read failed %d\n", err);
 		return err;
 	}
 
@@ -82,7 +82,7 @@ int controller_discover_io_callback(int err,
 		uint32_t context __attribute__((unused)), cannabus_operation_t *op) {
 	BaseType_t ok;
 
-	LOG("discovery callback, err = %d\n", err);
+	LOG("Controller: discovery callback, err = %d\n", err);
 
 	// is this a timeout?
 	if(err == kErrCannabusTimeout) {

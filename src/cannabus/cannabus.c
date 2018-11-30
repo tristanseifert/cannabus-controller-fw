@@ -539,13 +539,13 @@ void cannabus_ioop_timeout_callback(TimerHandle_t timer) {
 	cannabus_ioop_t *ioOp = (cannabus_ioop_t *) pvTimerGetTimerID(timer);
 
 	if(ioOp == NULL) {
-		LOG("CANnabus timeout fired with NULL timer id (timer 0x%08x)\n", timer);
+		LOG("CANnabus: timeout fired with NULL timer id (timer 0x%08x)\n", timer);
 		return;
 	}
 
 	// make sure this op is still valid
 	if(ioOp->valid == 0) {
-		LOG("CANnabus timeout fired with invalid IOOp (IOOp 0x%08x)\n", ioOp);
+		LOG("CANnabus: timeout fired with invalid IOOp (IOOp 0x%08x)\n", ioOp);
 		return;
 	}
 
@@ -553,7 +553,7 @@ void cannabus_ioop_timeout_callback(TimerHandle_t timer) {
 	err = ioOp->callback(kErrCannabusTimeout, ioOp->cbContext, NULL);
 
 	if(err < kErrSuccess) {
-		LOG("ioOp->callback(): %d\n", err);
+		LOG("CANnabus:ioOp->callback(): %d\n", err);
 	}
 
 	// mark the io op as invalid (free)
