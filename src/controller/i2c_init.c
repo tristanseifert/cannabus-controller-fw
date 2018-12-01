@@ -413,11 +413,11 @@ __attribute__((noreturn)) void controller_i2c_task(void *ctx __attribute__((unus
 		ok = xQueueReceive(gState.msgQueue, &msg, portMAX_DELAY);
 
 		if(ok != pdTRUE) {
-			LOG("xQueueReceive: %d\n", ok);
+			LOG("Controller: xQueueReceive failed %d\n", ok);
 			continue;
 		}
 
-		// set the busy flag
+		// set the busy flag in status register
 		gRegs[0x00].read[0] |= REG_BIT(0);
 
 		// reset error state
@@ -466,7 +466,7 @@ int controller_i2c_reg_read(uint8_t reg) {
 	uint32_t newValue = controller_i2c_get_reg(reg, true);
 
 #if LOG_REG_ACCESS
-	LOG("register 0x%02x read (0x%08x)\n", reg, newValue);
+	LOG("Controller: register 0x%02x read (0x%08x)\n", reg, newValue);
 #endif
 
 	// call the register specific routine
@@ -481,7 +481,7 @@ int controller_i2c_reg_write(uint8_t reg) {
 	uint32_t newValue = controller_i2c_get_reg(reg, false);
 
 #if LOG_REG_ACCESS
-	LOG("register 0x%02x written (0x%08x)\n", reg, newValue);
+	LOG("Controller: register 0x%02x written (0x%08x)\n", reg, newValue);
 #endif
 
 	// call the register specific routine

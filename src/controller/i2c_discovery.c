@@ -93,6 +93,8 @@ int controller_discover_io_callback(int err,
 			LOG("xTaskNotify: %d\n", ok);
 			return kErrNotify;
 		}
+
+		return kErrSuccess;
 	}
 	// no error (received frame)?
 	else if(err == kErrSuccess) {
@@ -128,7 +130,6 @@ int controller_discover_io_callback(int err,
 		LOG("controller_discover_io_callback: unexpected CANnabus error %d\n", err);
 	}
 
-	// success
 	return kErrSuccess;
 }
 

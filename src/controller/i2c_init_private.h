@@ -46,9 +46,9 @@ typedef enum {
 	/// an IO operation completed
 	kMsgTypeRegisterIOCompleted,
 } controller_i2c_task_msg_type_t;
-
 /**
- * Task message
+ * Task message: queued from register handlers to perform some sort of longer
+ * running operation.
  */
 typedef struct controller_i2c_task_msg {
 	/// type
@@ -82,6 +82,8 @@ typedef struct controller_i2c_task_msg {
  * Macro defining a bit in a register.
  */
 #define REG_BIT(x)					(1UL << x)
+
+
 
 /**
  * Typedef for a register initialization function.

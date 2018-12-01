@@ -32,6 +32,9 @@ int controller_cannabus_handle_request(controller_i2c_task_msg_t *msg) {
 	LOG("Controller: transaction request (device 0x%04x, reg 0x%03x, read %d write %d)\n",
 			box->device, box->reg, msg->ioRequest.read, msg->ioRequest.write);
 
+	// update status register
+	controller_cannabus_update_status();
+
 	// is it a read?
 	if(msg->ioRequest.read) {
 		// if so, perform a read from the register
@@ -106,6 +109,29 @@ void reg_init_cannabus_control(void) {
 
 	// update the timeouts
 	reg_write_cannabus_control(0x05, reg);
+}
+
+
+/**
+ * Updates the CANnabus controller status register.
+ */
+void controller_cannabus_update_status(void) {
+	uint32_t reg = 0;
+
+	// are any mailboxes in use?
+	for(int i = 0; i < kNumReadMailboxes; i++) {
+		if(gState.cannabus.readMailbox[i].used) {
+			reg |= REG_BIT(29);
+		}
+	}
+	for(int i = 0; i < kNumWriteMailboxes; i++) {
+		if(gState.cannabus.writeMailbox[i].used) {
+			reg |= REG_BIT(29);
+		}
+	}
+
+	// set reg
+	controller_i2c_set_reg(0x04, true, reg);
 }
 
 
@@ -312,6 +338,9 @@ int reg_write_cannabus_io_control(uint8_t reg, uint32_t writtenValue) {
 	// update mailbox status as well as the control reg (with written value)
 	reg_mailbox_status_update(reg, box);
 	controller_i2c_set_reg(reg, true, writtenValue);
+
+	// lastly, update CANnabus status
+	controller_cannabus_update_status();
 
 	return kErrSuccess;
 }

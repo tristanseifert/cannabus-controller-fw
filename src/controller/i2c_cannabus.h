@@ -102,6 +102,13 @@ void reg_init_cannabus_control(void);
 
 
 /**
+ * Updates the CANnabus controller status register.
+ */
+void controller_cannabus_update_status(void);
+
+
+
+/**
  * Configures the CANnabus driver.
  */
 int reg_write_cannabus_control(uint8_t reg, uint32_t writtenValue);
